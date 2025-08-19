@@ -1,0 +1,95 @@
+Landing Page
+	- Consists of Title ( Volleyball Statistics App)
+		- Court Vision
+		- VolleyMetrics
+		- NetCore Analytics 
+		- StatForm
+	- Logo
+	
+Welcome Page
+	- Introduce Different Tournament Layout to choose from
+		- Single Elimination 
+		- Double Elimination
+		- Round Robin
+	
+
+	- Introduce Number of Sets to be played ( Best of )
+		- 1
+		- 3
+		- 5
+		- 7
+		- Custom: ( for non-professional games )
+	
+
+Team Setup
+
+* USER INPUT FIRST NUMBER OF TEAMS TO PLAY *
+
+	- Gather Team Data: TEAM NAME; TEAM COLOR; Optional: Team Logo ( Can be randomized )
+	- Assign Team Roster per team:
+		- PLAYER NAME
+		- PLAYER JERSEY NUMBER ( Each player must have unique number [Primary Key] )
+		- PLAYER POSITION
+
+
+* AFTER USER INPUT, RANDOMLY ASSIGN TEAMS TO THE CHOSEN TOURNAMENT LAYOUT *
+
+	- User is free to re-assign teams base on skill levels ( Fair matchmaking )
+
+
+
+Match Setup
+
+	Layout:
+
+		TOP BAR
+			- Match Timer //  Set Tracker  // Game/Match Number:
+		
+		CENTRAL PANNEL
+		
+		* Buttons are displayed similar to volleyball court *
+			- 6 buttons per side of court ( referencing to 6 players on court )
+			- Buttons are displayed by format: ( Player Number - Surname )
+				- 2 Names if has sub
+
+			- Buttons are clickable; once clicked, display stat recording option
+				Serve (Ace / Error)
+				Attack (Kill / Error / Blocked)
+				Block (Stuff / Assist)
+				Dig
+				Reception (Perfect / Poor)
+				Sets ( Perfect / Poor )
+				Substitutions ( Player Number - Surname )
+
+
+		BOTTON BAR
+		- SWITCH SETS	//	View Match Summary	//	Player View
+
+
+
+Match Summary / Reports Page
+
+	Live and post-match report:
+		-Per player and team stats
+
+	Serve efficiency, attack %, digs, receptions, etc.
+	POM Automatic Solver: 
+
+Export: PDF, Excel, or share link
+
+
+
+Optional Pages (for Pro Users or Expansion)
+
+Player Management Page
+
+	- Create/manage player profiles with stats history
+
+Team Dashboard
+
+	- View performance trends over multiple matches
+
+ 
+
+		
+	
