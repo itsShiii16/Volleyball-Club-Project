@@ -3,6 +3,7 @@
 import { useMatchStore } from "@/store/matchStore";
 import type { RotationSlot, TeamId } from "@/lib/volleyball";
 import { slotLabel } from "@/lib/volleyball";
+import { useDroppable } from "@dnd-kit/core";
 
 export default function Court() {
   return (
@@ -64,6 +65,16 @@ function TeamHalf({ side, teamId }: { side: "left" | "right"; teamId: TeamId }) 
     </div>
   );
 
+  /**
+   * ✅ CLEAN FIX:
+   * Add more padding on the NET-side of each team half.
+   * - Team A (left half): net side is RIGHT -> add more pr
+   * - Team B (right half): net side is LEFT -> add more pl
+   *
+   * This shifts both halves away from the net equally and makes spacing symmetrical.
+   */
+  const innerPadding = isLeft ? "pl-4 pr-10" : "pl-5 pr-10";
+
   return (
     <div
       className={[
@@ -71,7 +82,7 @@ function TeamHalf({ side, teamId }: { side: "left" | "right"; teamId: TeamId }) 
         isLeft ? "border-r-[4px]" : "border-l-[4px]",
       ].join(" ")}
     >
-      <div className="h-full w-full grid grid-cols-2 gap-10 px-10 py-10">
+      <div className={["h-full w-full grid grid-cols-2 gap-10 py-10", innerPadding].join(" ")}>
         {nearNetFirst ? FrontCol : BackCol}
         {nearNetFirst ? BackCol : FrontCol}
       </div>
@@ -91,74 +102,85 @@ function CourtSlot({ teamId, slot }: { teamId: TeamId; slot: RotationSlot }) {
   const playerId = court[slot];
   const player = players.find((p) => p.id === playerId);
 
+  // droppable target for drag-drop bench rails
+  const dropId = `${teamId}-${slot}`;
+  const { setNodeRef, isOver } = useDroppable({
+    id: dropId,
+    data: { teamId, slot },
+  });
+
   const isSelected = selected?.teamId === teamId && selected?.slot === slot;
 
+  function handlePrimaryClick() {
+    // clicking the square goes straight to scoring
+    // If empty, open bench selection instead (so user can assign)
+    if (!playerId) {
+      selectSlot(teamId, slot, "bench");
+      return;
+    }
+    openScoresheet(teamId, slot);
+  }
+
   return (
-    <button
-      type="button"
-      onClick={() => selectSlot(teamId, slot)}
+    <div
+      ref={setNodeRef}
       className={[
         "w-40 h-28 rounded-md shadow transition px-3 py-2 flex flex-col text-left",
-        isSelected ? "bg-white ring-4 ring-blue-400" : "bg-gray-100 hover:shadow-md",
+        "bg-gray-100 cursor-pointer select-none",
+        isSelected ? "ring-4 ring-blue-400" : "hover:shadow-md",
+        isOver ? "ring-4 ring-emerald-400 bg-emerald-50" : "",
       ].join(" ")}
+      onClick={handlePrimaryClick}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") handlePrimaryClick();
+      }}
+      title={playerId ? "Open scoring" : "Assign a player"}
     >
       {/* Slot label */}
       <div className="flex items-center justify-between">
         <div className="text-[11px] text-black/60 font-bold">{slotLabel[slot]}</div>
-        <div className="text-[10px] font-extrabold text-black/50">
-          {teamId === "A" ? "A" : "B"}
-        </div>
+        <div className="text-[10px] font-extrabold text-black/50">{teamId}</div>
       </div>
 
       {/* Player info */}
       <div className="mt-1 flex-1 flex flex-col justify-center">
         {player ? (
           <>
-            <div className="text-base font-extrabold text-black leading-tight">
-              #{player.jerseyNumber}
-            </div>
-            <div className="text-sm font-semibold text-black truncate">
-              {player.name}
-            </div>
-            <div className="text-[11px] text-black/70 font-bold">
-              {player.position}
-            </div>
+            <div className="text-base font-extrabold text-black leading-tight">#{player.jerseyNumber}</div>
+            <div className="text-sm font-semibold text-black truncate">{player.name}</div>
+            <div className="text-[11px] text-black/70 font-bold">{player.position}</div>
           </>
         ) : (
           <div className="text-sm font-bold text-black/60">Empty</div>
         )}
       </div>
 
-      {/* Actions row (Option B) */}
-      <div className="mt-2 flex gap-2">
-        {/* SUB: explicitly opens SlotPanel for substitutions */}
+      {/* Only action left: SCORE (optional, but makes it obvious) */}
+      <div className="mt-2">
         <button
           type="button"
           onClick={(e) => {
             e.stopPropagation();
-            selectSlot(teamId, slot);
-          }}
-          className="flex-1 rounded-md bg-white border border-black/10 px-2 py-1 text-xs font-extrabold text-black hover:bg-gray-50"
-          title="Substitution / change player"
-        >
-          SUB
-        </button>
-
-        {/* SCORE: opens ScoresheetPanel directly */}
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
+            if (!playerId) {
+              selectSlot(teamId, slot, "bench");
+              return;
+            }
             openScoresheet(teamId, slot);
           }}
-          className="flex-1 rounded-md bg-[var(--brand-sky)] px-2 py-1 text-xs font-extrabold text-white hover:opacity-90"
-          title="Open scoresheet"
-          disabled={!player}
+          className={[
+            "w-full rounded-md px-2 py-1 text-xs font-extrabold",
+            playerId
+              ? "bg-[var(--brand-sky)] text-white hover:opacity-90"
+              : "bg-white border border-black/10 text-black hover:bg-gray-50",
+          ].join(" ")}
+          title={playerId ? "Open scoresheet" : "Assign player"}
         >
-          SCORE
+          {playerId ? "SCORE" : "ASSIGN"}
         </button>
       </div>
-    </button>
+    </div>
   );
 }
 

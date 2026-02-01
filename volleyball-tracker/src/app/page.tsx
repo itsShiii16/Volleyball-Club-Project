@@ -3,9 +3,20 @@
 import Court from "@/components/Court/Court";
 import SlotPanel from "@/components/Court/SlotPanel";
 import ScoresheetPanel from "@/components/Court/Scoresheet/ScoresheetPanel";
+import BenchRail from "@/components/Court/Bench/BenchRail";
+
 import { useMemo, useState } from "react";
 import { useMatchStore } from "@/store/matchStore";
 import { useRouter } from "next/navigation";
+
+import {
+  DndContext,
+  type DragEndEvent,
+  MouseSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
 
 export default function Home() {
   const router = useRouter();
@@ -27,6 +38,36 @@ export default function Home() {
   const teamB = useMemo(() => players.filter((p) => p.teamId === "B"), [players]);
 
   const rosterReady = teamA.length >= 6 && teamB.length >= 6;
+
+  // DnD sensors (mouse + touch)
+  const sensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 120, tolerance: 8 } })
+  );
+
+  function onDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over) return;
+
+    // draggable id = playerId
+    const playerId = String(active.id);
+
+    // droppable id must be like "A-4"
+    const overId = String(over.id);
+    const [teamIdRaw, slotRaw] = overId.split("-");
+    const slotNum = Number(slotRaw);
+
+    const teamId = teamIdRaw === "A" || teamIdRaw === "B" ? teamIdRaw : null;
+    if (!teamId) return;
+    if (![1, 2, 3, 4, 5, 6].includes(slotNum)) return;
+
+    // Safety: only allow bench A -> A slots, bench B -> B slots
+    const p = players.find((x) => x.id === playerId);
+    if (!p) return;
+    if (p.teamId !== teamId) return;
+
+    assign(teamId, slotNum as any, playerId);
+  }
 
   function autoFill() {
     if (!rosterReady) return;
@@ -55,124 +96,130 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-[var(--background)] p-6">
-      <div className="max-w-6xl mx-auto flex flex-col gap-4">
-        {/* Top controls */}
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={() => router.push("/setup")}
-              className="px-4 py-2 rounded-lg font-semibold shadow bg-[var(--brand-sky)] text-white hover:opacity-90"
-            >
-              Setup Roster
-            </button>
+      <DndContext sensors={sensors} onDragEnd={onDragEnd}>
+        <div className="max-w-6xl mx-auto flex flex-col gap-4">
+          {/* Top controls */}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => router.push("/setup")}
+                className="px-4 py-2 rounded-lg font-semibold shadow bg-[var(--brand-sky)] text-white hover:opacity-90"
+              >
+                Setup Roster
+              </button>
 
-            <button
-              onClick={autoFill}
-              disabled={!rosterReady}
-              className={[
-                "px-4 py-2 rounded-lg font-semibold shadow transition",
-                rosterReady
-                  ? "bg-white text-black hover:shadow-md"
-                  : "bg-white/60 text-black/40 cursor-not-allowed",
-              ].join(" ")}
-              title={
-                !rosterReady
-                  ? "Add at least 6 players per team in Setup Roster"
-                  : "Auto-fill starting 6"
-              }
-            >
-              Auto-fill Starting 6
-            </button>
-          </div>
-
-          <div className="flex flex-wrap gap-2 items-center">
-            {/* Scoreboard */}
-            <div className="bg-white rounded-lg px-4 py-2 shadow text-black font-extrabold">
-              A {scoreA} – {scoreB} B
-            </div>
-            <div className="text-white/90 text-sm">
-              Serving: <b className="text-white">{servingTeam}</b>
+              <button
+                onClick={autoFill}
+                disabled={!rosterReady}
+                className={[
+                  "px-4 py-2 rounded-lg font-semibold shadow transition",
+                  rosterReady
+                    ? "bg-white text-black hover:shadow-md"
+                    : "bg-white/60 text-black/40 cursor-not-allowed",
+                ].join(" ")}
+                title={
+                  !rosterReady
+                    ? "Add at least 6 players per team in Setup Roster"
+                    : "Auto-fill starting 6"
+                }
+              >
+                Auto-fill Starting 6
+              </button>
             </div>
 
-            <button
-              onClick={undoLastEvent}
-              className="px-4 py-2 rounded-lg bg-white text-black shadow hover:shadow-md font-semibold"
-              title="Undo last logged event"
-            >
-              Undo
-            </button>
+            <div className="flex flex-wrap gap-2 items-center">
+              {/* Scoreboard */}
+              <div className="bg-white rounded-lg px-4 py-2 shadow text-black font-extrabold">
+                A {scoreA} – {scoreB} B
+              </div>
+              <div className="text-white text-sm font-semibold">
+                Serving: <b className="text-white">{servingTeam}</b>
+              </div>
 
-            <button
-              className="px-4 py-2 rounded-lg font-semibold shadow bg-white text-black hover:shadow-md"
-              onClick={() => rotateTeam("A")}
-            >
-              Rotate Team A
-            </button>
+              <button
+                onClick={undoLastEvent}
+                className="px-4 py-2 rounded-lg bg-white text-black shadow hover:shadow-md font-semibold"
+                title="Undo last logged event"
+              >
+                Undo
+              </button>
 
-            <button
-              className="px-4 py-2 rounded-lg font-semibold shadow bg-white text-black hover:shadow-md"
-              onClick={() => rotateTeam("B")}
-            >
-              Rotate Team B
-            </button>
+              <button
+                className="px-4 py-2 rounded-lg font-semibold shadow bg-white text-black hover:shadow-md"
+                onClick={() => rotateTeam("A")}
+              >
+                Rotate Team A
+              </button>
 
-            <button
-              className="px-4 py-2 rounded-lg font-semibold shadow bg-white/80 text-black hover:shadow-md"
-              onClick={() => resetCourt("A")}
-              title="Clear Team A court"
-            >
-              Reset A
-            </button>
+              <button
+                className="px-4 py-2 rounded-lg font-semibold shadow bg-white text-black hover:shadow-md"
+                onClick={() => rotateTeam("B")}
+              >
+                Rotate Team B
+              </button>
 
-            <button
-              className="px-4 py-2 rounded-lg font-semibold shadow bg-white/80 text-black hover:shadow-md"
-              onClick={() => resetCourt("B")}
-              title="Clear Team B court"
-            >
-              Reset B
-            </button>
+              <button
+                className="px-4 py-2 rounded-lg font-semibold shadow bg-white/80 text-black hover:shadow-md"
+                onClick={() => resetCourt("A")}
+                title="Clear Team A court"
+              >
+                Reset A
+              </button>
 
-            <button
-              className="px-4 py-2 rounded-lg font-semibold shadow bg-red-600 text-white hover:opacity-90"
-              onClick={() => setConfirmResetOpen(true)}
-              title="Clear both courts + selection + scoresheet + events"
-            >
-              Reset Match
-            </button>
+              <button
+                className="px-4 py-2 rounded-lg font-semibold shadow bg-white/80 text-black hover:shadow-md"
+                onClick={() => resetCourt("B")}
+                title="Clear Team B court"
+              >
+                Reset B
+              </button>
+
+              <button
+                className="px-4 py-2 rounded-lg font-semibold shadow bg-red-600 text-white hover:opacity-90"
+                onClick={() => setConfirmResetOpen(true)}
+                title="Clear both courts + selection + scoresheet + events"
+              >
+                Reset Match
+              </button>
+            </div>
           </div>
+
+          {/* Hint banner */}
+          {!rosterReady && (
+            <div className="rounded-xl border border-white/40 bg-white/70 p-4 text-sm text-black">
+              <span className="font-semibold">Add at least 6 players per team</span> in{" "}
+              <span className="font-semibold">Setup Roster</span>, then click{" "}
+              <span className="font-semibold">Auto-fill Starting 6</span> to place them on the court.
+            </div>
+          )}
+
+          {/* Bench rails + Court */}
+          <div className="grid grid-cols-[140px_1fr_140px] gap-4 items-start">
+            <BenchRail teamId="A" />
+            <Court />
+            <BenchRail teamId="B" />
+          </div>
+
+          {/* Panels */}
+          <SlotPanel />
+          <ScoresheetPanel />
+
+          {/* Reset match confirm dialog */}
+          {confirmResetOpen && (
+            <ConfirmDialog
+              title="Reset match?"
+              message="This will clear both courts, close panels, and delete all logged events."
+              confirmLabel="Yes, reset"
+              cancelLabel="Cancel"
+              onCancel={() => setConfirmResetOpen(false)}
+              onConfirm={() => {
+                resetMatch();
+                setConfirmResetOpen(false);
+              }}
+            />
+          )}
         </div>
-
-        {/* Hint banner */}
-        {!rosterReady && (
-          <div className="rounded-xl border border-white/40 bg-white/70 p-4 text-sm text-black">
-            <span className="font-semibold">Add at least 6 players per team</span> in{" "}
-            <span className="font-semibold">Setup Roster</span>, then click{" "}
-            <span className="font-semibold">Auto-fill Starting 6</span> to place them on the court.
-          </div>
-        )}
-
-        {/* Court */}
-        <Court />
-
-        {/* Panels */}
-        <SlotPanel />
-        <ScoresheetPanel />
-
-        {/* Reset match confirm dialog */}
-        {confirmResetOpen && (
-          <ConfirmDialog
-            title="Reset match?"
-            message="This will clear both courts, close panels, and delete all logged events."
-            confirmLabel="Yes, reset"
-            cancelLabel="Cancel"
-            onCancel={() => setConfirmResetOpen(false)}
-            onConfirm={() => {
-              resetMatch();
-              setConfirmResetOpen(false);
-            }}
-          />
-        )}
-      </div>
+      </DndContext>
     </main>
   );
 }
