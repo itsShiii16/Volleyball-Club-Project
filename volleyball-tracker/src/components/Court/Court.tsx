@@ -40,9 +40,12 @@ export default function Court() {
 function TeamHalf({ side, teamId }: { side: "left" | "right"; teamId: TeamId }) {
   const isLeft = side === "left";
 
-  // Near net placement:
-  // - Left team: near net is RIGHT column
-  // - Right team: near net is LEFT column
+  /**
+   * Both teams FACE the net.
+   * Near-net column:
+   * - Left team: near-net column is the RIGHT column
+   * - Right team: near-net column is the LEFT column
+   */
   const nearNetFirst = !isLeft;
 
   const BackCol = (
@@ -93,26 +96,68 @@ function CourtSlot({ teamId, slot }: { teamId: TeamId; slot: RotationSlot }) {
   return (
     <button
       type="button"
-      onClick={() => {
-        if (playerId) openScoresheet(teamId, slot);
-        else selectSlot(teamId, slot);
-      }}
+      onClick={() => selectSlot(teamId, slot)}
       className={[
-        "w-40 h-24 rounded-md shadow transition px-3 flex flex-col items-center justify-center text-center",
-        isSelected ? "bg-white ring-4 ring-blue-400" : "bg-gray-200 hover:shadow-md",
+        "w-40 h-28 rounded-md shadow transition px-3 py-2 flex flex-col text-left",
+        isSelected ? "bg-white ring-4 ring-blue-400" : "bg-gray-100 hover:shadow-md",
       ].join(" ")}
     >
-      <div className="text-[11px] text-gray-500 font-semibold">{slotLabel[slot]}</div>
+      {/* Slot label */}
+      <div className="flex items-center justify-between">
+        <div className="text-[11px] text-black/60 font-bold">{slotLabel[slot]}</div>
+        <div className="text-[10px] font-extrabold text-black/50">
+          {teamId === "A" ? "A" : "B"}
+        </div>
+      </div>
 
-      {player ? (
-        <>
-          <div className="text-base font-extrabold text-gray-900">#{player.jerseyNumber}</div>
-          <div className="text-sm font-medium text-gray-800 truncate w-full">{player.name}</div>
-          <div className="text-[11px] text-gray-600">{player.position}</div>
-        </>
-      ) : (
-        <div className="text-sm font-semibold text-gray-600">Empty</div>
-      )}
+      {/* Player info */}
+      <div className="mt-1 flex-1 flex flex-col justify-center">
+        {player ? (
+          <>
+            <div className="text-base font-extrabold text-black leading-tight">
+              #{player.jerseyNumber}
+            </div>
+            <div className="text-sm font-semibold text-black truncate">
+              {player.name}
+            </div>
+            <div className="text-[11px] text-black/70 font-bold">
+              {player.position}
+            </div>
+          </>
+        ) : (
+          <div className="text-sm font-bold text-black/60">Empty</div>
+        )}
+      </div>
+
+      {/* Actions row (Option B) */}
+      <div className="mt-2 flex gap-2">
+        {/* SUB: explicitly opens SlotPanel for substitutions */}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            selectSlot(teamId, slot);
+          }}
+          className="flex-1 rounded-md bg-white border border-black/10 px-2 py-1 text-xs font-extrabold text-black hover:bg-gray-50"
+          title="Substitution / change player"
+        >
+          SUB
+        </button>
+
+        {/* SCORE: opens ScoresheetPanel directly */}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            openScoresheet(teamId, slot);
+          }}
+          className="flex-1 rounded-md bg-[var(--brand-sky)] px-2 py-1 text-xs font-extrabold text-white hover:opacity-90"
+          title="Open scoresheet"
+          disabled={!player}
+        >
+          SCORE
+        </button>
+      </div>
     </button>
   );
 }

@@ -18,6 +18,11 @@ export default function Home() {
   const resetCourt = useMatchStore((s) => s.resetCourt);
   const resetMatch = useMatchStore((s) => s.resetMatch);
 
+  const scoreA = useMatchStore((s) => s.scoreA);
+  const scoreB = useMatchStore((s) => s.scoreB);
+  const servingTeam = useMatchStore((s) => s.servingTeam);
+  const undoLastEvent = useMatchStore((s) => s.undoLastEvent);
+
   const teamA = useMemo(() => players.filter((p) => p.teamId === "A"), [players]);
   const teamB = useMemo(() => players.filter((p) => p.teamId === "B"), [players]);
 
@@ -32,6 +37,7 @@ export default function Home() {
     const A = teamA.slice(0, 6);
     const B = teamB.slice(0, 6);
 
+    // slots: 4 FL, 3 FM, 2 FR, 5 BL, 6 BM, 1 BR
     assign("A", 4, A[0].id);
     assign("A", 3, A[1].id);
     assign("A", 2, A[2].id);
@@ -60,7 +66,6 @@ export default function Home() {
               Setup Roster
             </button>
 
-            {/* Auto-fill: make disabled state readable */}
             <button
               onClick={autoFill}
               disabled={!rosterReady}
@@ -80,8 +85,23 @@ export default function Home() {
             </button>
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            {/* These were hard to see: force black text */}
+          <div className="flex flex-wrap gap-2 items-center">
+            {/* Scoreboard */}
+            <div className="bg-white rounded-lg px-4 py-2 shadow text-black font-extrabold">
+              A {scoreA} – {scoreB} B
+            </div>
+            <div className="text-white/90 text-sm">
+              Serving: <b className="text-white">{servingTeam}</b>
+            </div>
+
+            <button
+              onClick={undoLastEvent}
+              className="px-4 py-2 rounded-lg bg-white text-black shadow hover:shadow-md font-semibold"
+              title="Undo last logged event"
+            >
+              Undo
+            </button>
+
             <button
               className="px-4 py-2 rounded-lg font-semibold shadow bg-white text-black hover:shadow-md"
               onClick={() => rotateTeam("A")}
