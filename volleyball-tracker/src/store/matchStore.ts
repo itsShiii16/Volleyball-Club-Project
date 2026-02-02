@@ -54,6 +54,47 @@ const rotateCourtBackward = (court: CourtState): CourtState => {
   return next;
 };
 
+/** Court rules helpers */
+const isFrontRowSlot = (slot: RotationSlot) => slot === 2 || slot === 3 || slot === 4;
+
+const isLiberoPlayer = (p: Player | null | undefined) => {
+  const pos = normKey(p?.position ?? "");
+  return pos === "L" || pos === "LIBERO";
+};
+
+const hasIllegalLiberoFrontRow = (court: CourtState, players: Player[]) => {
+  const frontSlots: RotationSlot[] = [2, 3, 4];
+  for (const s of frontSlots) {
+    const pid = court[s];
+    if (!pid) continue;
+    const p = players.find((x) => x.id === pid);
+    if (p && isLiberoPlayer(p)) return true;
+  }
+  return false;
+};
+
+// Skill classification
+const isBlockSkill = (skill: Skill) => normKey(skill).includes("BLOCK");
+const isServeSkill = (skill: Skill) => normKey(skill).includes("SERVE");
+const isSpikeSkill = (skill: Skill) => {
+  const k = normKey(skill);
+  return k.includes("SPIKE") || k.includes("ATTACK") || k === "HIT";
+};
+
+type ToastType = "info" | "warn" | "error";
+
+export type ToastState = {
+  id: string;
+  message: string;
+  type: ToastType;
+};
+
+const makeToast = (message: string, type: ToastType = "warn"): ToastState => ({
+  id: crypto.randomUUID(),
+  message,
+  type,
+});
+
 /**
  * Internal event stores enough metadata to UNDO scoring + sideout rotation.
  */
@@ -93,6 +134,11 @@ type MatchStore = {
   selected: { teamId: TeamId; slot: RotationSlot; mode?: "default" | "bench" } | null;
   selectSlot: (teamId: TeamId, slot: RotationSlot, mode?: "default" | "bench") => void;
   clearSelection: () => void;
+
+  // Toasts (UI feedback for rule blocks)
+  toast: ToastState | null;
+  setToast: (message: string, type?: ToastType) => void;
+  clearToast: () => void;
 
   // Roster actions
   setPlayers: (players: Player[]) => void;
@@ -136,7 +182,7 @@ type MatchStore = {
 export const useMatchStore = create<MatchStore>()(
   persist(
     (set, get) => {
-      // ✅ Rotation direction now depends on WHICH SIDE the team is on
+      // Rotation direction depends on WHICH SIDE the team is on
       const isTeamOnLeft = (teamId: TeamId) => get().leftTeam === teamId;
 
       const rotateForwardForTeam = (teamId: TeamId, court: CourtState) =>
@@ -153,13 +199,18 @@ export const useMatchStore = create<MatchStore>()(
         // Default layout: A on left, B on right
         leftTeam: "A",
         setLeftTeam: (teamId) => set({ leftTeam: teamId }),
-        swapSides: () =>
-          set((state) => ({ leftTeam: state.leftTeam === "A" ? "B" : "A" })),
+        swapSides: () => set((state) => ({ leftTeam: state.leftTeam === "A" ? "B" : "A" })),
 
         selected: null,
         selectSlot: (teamId, slot, mode = "default") => set({ selected: { teamId, slot, mode } }),
         clearSelection: () => set({ selected: null }),
 
+        // Toasts (not persisted)
+        toast: null,
+        setToast: (message, type = "warn") => set({ toast: makeToast(message, type) }),
+        clearToast: () => set({ toast: null }),
+
+        // Roster actions
         setPlayers: (players) => set({ players }),
         addPlayer: (player) => set((state) => ({ players: [...state.players, player] })),
         updatePlayer: (id, patch) =>
@@ -168,6 +219,7 @@ export const useMatchStore = create<MatchStore>()(
           })),
         removePlayer: (id) => set((state) => ({ players: state.players.filter((p) => p.id !== id) })),
 
+        // Court slot actions
         assignPlayerToSlot: (teamId, slot, playerId) =>
           set((state) => {
             const key: "courtA" | "courtB" = teamId === "A" ? "courtA" : "courtB";
@@ -175,9 +227,32 @@ export const useMatchStore = create<MatchStore>()(
 
             // Prevent duplicates on same team's court
             const alreadyOnCourt = Object.values(court).includes(playerId);
-            if (alreadyOnCourt) return state;
+            if (alreadyOnCourt) {
+              return {
+                ...state,
+                toast: makeToast("That player is already on the court.", "info"),
+              };
+            }
+
+            // RULE: Libero cannot be assigned to front row
+            const p = state.players.find((x) => x.id === playerId) || null;
+            if (p && isLiberoPlayer(p) && isFrontRowSlot(slot)) {
+              return {
+                ...state,
+                toast: makeToast("Illegal assignment: Libero cannot be placed in the front row.", "error"),
+              };
+            }
 
             court[slot] = playerId;
+
+            // Extra safety
+            if (hasIllegalLiberoFrontRow(court, state.players)) {
+              return {
+                ...state,
+                toast: makeToast("Illegal state prevented: Libero cannot be in the front row.", "error"),
+              };
+            }
+
             return { ...state, [key]: court };
           }),
 
@@ -193,6 +268,7 @@ export const useMatchStore = create<MatchStore>()(
             return { ...state, [key]: court };
           }),
 
+        // Helpers
         getOnCourtPlayerIds: (teamId) => {
           const state = get();
           const court = teamId === "A" ? state.courtA : state.courtB;
@@ -204,25 +280,48 @@ export const useMatchStore = create<MatchStore>()(
           set((state) => {
             const key: "courtA" | "courtB" = teamId === "A" ? "courtA" : "courtB";
             const court = teamId === "A" ? state.courtA : state.courtB;
-            return { ...state, [key]: rotateForwardForTeam(teamId, court) };
+
+            const rotated = rotateForwardForTeam(teamId, court);
+
+            if (hasIllegalLiberoFrontRow(rotated, state.players)) {
+              return {
+                ...state,
+                toast: makeToast("Illegal rotation: Libero cannot rotate into the front row.", "error"),
+              };
+            }
+
+            return { ...state, [key]: rotated };
           }),
 
         rotateTeamBackward: (teamId) =>
           set((state) => {
             const key: "courtA" | "courtB" = teamId === "A" ? "courtA" : "courtB";
             const court = teamId === "A" ? state.courtA : state.courtB;
-            return { ...state, [key]: rotateBackwardForTeam(teamId, court) };
+
+            const rotated = rotateBackwardForTeam(teamId, court);
+
+            if (hasIllegalLiberoFrontRow(rotated, state.players)) {
+              return {
+                ...state,
+                toast: makeToast("Illegal rotation: Libero cannot rotate into the front row.", "error"),
+              };
+            }
+
+            return { ...state, [key]: rotated };
           }),
 
+        // Scoresheet UI
         activeScoresheet: null,
         openScoresheet: (teamId, slot) => set({ activeScoresheet: { teamId, slot } }),
         closeScoresheet: () => set({ activeScoresheet: null }),
 
+        // SCOREBOARD
         scoreA: 0,
         scoreB: 0,
         servingTeam: "A",
         setServingTeam: (teamId) => set({ servingTeam: teamId }),
 
+        // Event log
         events: [],
 
         logEvent: ({ teamId, slot, skill, outcome }) =>
@@ -231,7 +330,28 @@ export const useMatchStore = create<MatchStore>()(
             const playerId = court[slot];
             if (!playerId) return state;
 
+            const player = state.players.find((p) => p.id === playerId) || null;
+            const libero = isLiberoPlayer(player);
+            const frontRow = isFrontRowSlot(slot);
+
             const skillKey = normKey(skill);
+
+            // ✅ RULE: Back-row cannot block
+            if (isBlockSkill(skill) && !frontRow) {
+              return {
+                ...state,
+                toast: makeToast("Illegal action: Back-row players cannot block.", "error"),
+              };
+            }
+
+            // ✅ RULE: Libero cannot serve/spike/block
+            if (libero && (isBlockSkill(skill) || isServeSkill(skill) || isSpikeSkill(skill))) {
+              return {
+                ...state,
+                toast: makeToast("Illegal action: Libero cannot serve, spike, or block.", "error"),
+              };
+            }
+
             const outcomeKey = normKey(outcome);
 
             let pointWinner: TeamId | undefined;
@@ -273,10 +393,11 @@ export const useMatchStore = create<MatchStore>()(
                 outcomeKey.includes("KILL") ||
                 outcomeKey.includes("ACE");
 
-              const isServe = skillKey.includes("SERVE");
-              const isSpike = skillKey.includes("SPIKE") || skillKey.includes("ATTACK") || skillKey === "HIT";
-              const isBlock = skillKey.includes("BLOCK");
+              const isServe = isServeSkill(skill);
+              const isSpike = isSpikeSkill(skill);
+              const isBlock = isBlockSkill(skill);
 
+              // Only these skills can directly award a rally point
               if ((isServe || isSpike || isBlock) && isWin) {
                 pointWinner = teamId;
               }
@@ -294,18 +415,39 @@ export const useMatchStore = create<MatchStore>()(
             let nextCourtB = state.courtB;
 
             let didSideoutRotate = false;
+            let toast: ToastState | null = null;
 
-            // Sideout rotation also depends on which side the winning team is on
             if (pointWinner) {
               if (pointWinner === "A") nextScoreA += 1;
               else nextScoreB += 1;
 
+              // Side-out: winner gains serve and rotates (if legal)
               if (pointWinner !== state.servingTeam) {
-                didSideoutRotate = true;
                 nextServingTeam = pointWinner;
 
-                if (pointWinner === "A") nextCourtA = rotateForwardForTeam("A", state.courtA);
-                else nextCourtB = rotateForwardForTeam("B", state.courtB);
+                if (pointWinner === "A") {
+                  const rotated = rotateForwardForTeam("A", state.courtA);
+                  if (!hasIllegalLiberoFrontRow(rotated, state.players)) {
+                    didSideoutRotate = true;
+                    nextCourtA = rotated;
+                  } else {
+                    toast = makeToast(
+                      "Side-out rotation blocked: Libero cannot rotate into the front row.",
+                      "warn"
+                    );
+                  }
+                } else {
+                  const rotated = rotateForwardForTeam("B", state.courtB);
+                  if (!hasIllegalLiberoFrontRow(rotated, state.players)) {
+                    didSideoutRotate = true;
+                    nextCourtB = rotated;
+                  } else {
+                    toast = makeToast(
+                      "Side-out rotation blocked: Libero cannot rotate into the front row.",
+                      "warn"
+                    );
+                  }
+                }
               }
             }
 
@@ -334,6 +476,7 @@ export const useMatchStore = create<MatchStore>()(
               courtA: nextCourtA,
               courtB: nextCourtB,
               events: [e, ...state.events],
+              toast: toast ?? state.toast,
             };
           }),
 
@@ -362,25 +505,26 @@ export const useMatchStore = create<MatchStore>()(
             };
           }),
 
+        // Resets
         resetCourt: (teamId) =>
           set((state) => {
             if (teamId === "A") return { ...state, courtA: emptyCourt() };
             return { ...state, courtB: emptyCourt() };
           }),
 
-      resetMatch: () =>
-        set((state) => ({
-          ...state,
-          courtA: emptyCourt(),
-          courtB: emptyCourt(),
-          selected: null,
-          activeScoresheet: null,
-          events: [],
-          scoreA: 0,
-          scoreB: 0,
-          // ✅ keep whatever the user selected
-          servingTeam: state.servingTeam,
-        })),
+        resetMatch: () =>
+          set((state) => ({
+            ...state,
+            courtA: emptyCourt(),
+            courtB: emptyCourt(),
+            selected: null,
+            activeScoresheet: null,
+            events: [],
+            scoreA: 0,
+            scoreB: 0,
+            servingTeam: "A",
+            toast: null,
+          })),
       };
     },
     {
@@ -394,7 +538,8 @@ export const useMatchStore = create<MatchStore>()(
         scoreB: state.scoreB,
         servingTeam: state.servingTeam,
         events: state.events,
-        leftTeam: state.leftTeam, // ✅ persist court side
+        leftTeam: state.leftTeam,
+        // toast intentionally NOT persisted
       }),
     }
   )

@@ -4,6 +4,12 @@ import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import { useMatchStore } from "@/store/matchStore";
 import type { TeamId } from "@/lib/volleyball";
+import { positionColors } from "@/lib/position-ui";
+
+function getFirstName(name?: string) {
+  if (!name) return "";
+  return name.trim().split(/\s+/)[0].toUpperCase();
+}
 
 export default function BenchRail({ teamId }: { teamId: TeamId }) {
   const players = useMatchStore((s) => s.players);
@@ -20,9 +26,11 @@ export default function BenchRail({ teamId }: { teamId: TeamId }) {
         {teamId === "A" ? "BENCH A" : "BENCH B"}
       </div>
 
-      <div className="flex flex-col gap-2 overflow-auto pr-1 max-h-[520px]">
+      <div className="grid grid-cols-2 gap-x-3 gap-y-4">
         {bench.length === 0 ? (
-          <div className="text-xs font-bold text-black/60">No bench players</div>
+          <div className="col-span-2 text-xs font-bold text-black/60">
+            No bench players
+          </div>
         ) : (
           bench.map((p) => (
             <BenchChip
@@ -30,13 +38,15 @@ export default function BenchRail({ teamId }: { teamId: TeamId }) {
               id={p.id}
               number={p.jerseyNumber}
               teamId={teamId}
+              name={getFirstName(p.name)}
+              position={p.position}
             />
           ))
         )}
       </div>
 
-      <div className="mt-2 text-[10px] text-black/60 font-semibold">
-        Drag a number onto a court slot.
+      <div className="mt-3 text-[10px] text-black/60 font-semibold">
+        Drag a player onto a court slot.
       </div>
     </aside>
   );
@@ -46,37 +56,58 @@ function BenchChip({
   id,
   number,
   teamId,
+  name,
+  position,
 }: {
   id: string;
   number: number;
   teamId: TeamId;
+  name: string;
+  position?: string;
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } =
     useDraggable({
-      id, // draggable id = playerId
-      data: { playerId: id, teamId },
+      id,
+      data: {
+        playerId: id,
+        teamId,
+        position, // ✅ IMPORTANT: carry position in drag data (for future rules)
+      },
     });
 
   const style: React.CSSProperties = {
     transform: CSS.Translate.toString(transform),
-    opacity: isDragging ? 0.75 : 1,
+    opacity: isDragging ? 0.7 : 1,
   };
 
+  const c = positionColors(position);
+
   return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      {...listeners}
-      {...attributes}
-      className={[
-        "select-none cursor-grab active:cursor-grabbing",
-        "w-14 h-14 rounded-full grid place-items-center",
-        "bg-[var(--brand-amber)] border-2 border-black/15 shadow",
-        "text-black font-extrabold text-lg",
-      ].join(" ")}
-      title={`${teamId} #${number}`}
-    >
-      {number ? `#${number}` : "?"}
+    <div className="flex flex-col items-center">
+      <div
+        ref={setNodeRef}
+        style={style}
+        {...listeners}
+        {...attributes}
+        className={[
+          "select-none cursor-grab active:cursor-grabbing",
+          "touch-none overscroll-none",
+          "w-14 h-14 rounded-full grid place-items-center",
+          "border-2 border-black/15 shadow",
+          "font-extrabold text-lg",
+          c.chipBg,
+          c.chipText,
+          isDragging ? `ring-4 ${c.ring}` : "",
+        ].join(" ")}
+        title={`${teamId} #${number} ${name}${position ? ` – ${position}` : ""}`}
+      >
+        #{number}
+      </div>
+
+      <div className="mt-1 text-[10px] font-extrabold text-black/80 leading-tight text-center">
+        {name}
+        {position ? ` – ${String(position).toUpperCase()}` : ""}
+      </div>
     </div>
   );
 }

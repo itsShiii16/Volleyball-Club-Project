@@ -58,10 +58,8 @@ function TeamHalf({ side, teamId }: { side: "left" | "right"; teamId: TeamId }) 
     </div>
   );
 
-  // ✅ Symmetric padding:
-  // - Left half: more padding at left endline, less near net (right)
-  // - Right half: more padding at right endline, less near net (left)
-  const innerPadding = isLeft ? "pl-4 pr-10" : "pl-4 pr-10";
+  // Symmetric padding (you can tweak later if needed)
+  const innerPadding = "pl-4 pr-10";
 
   return (
     <div
@@ -86,6 +84,9 @@ function CourtSlot({ teamId, slot }: { teamId: TeamId; slot: RotationSlot }) {
 
   const openScoresheet = useMatchStore((s) => s.openScoresheet);
 
+  const servingTeam = useMatchStore((s) => s.servingTeam);
+  const leftTeam = useMatchStore((s) => s.leftTeam); // ✅ needed to compute server slot
+
   const court = useMatchStore((s) => (teamId === "A" ? s.courtA : s.courtB));
   const playerId = court[slot];
   const player = players.find((p) => p.id === playerId);
@@ -97,6 +98,11 @@ function CourtSlot({ teamId, slot }: { teamId: TeamId; slot: RotationSlot }) {
   });
 
   const isSelected = selected?.teamId === teamId && selected?.slot === slot;
+
+  // ✅ Server slot depends on which SIDE the team is currently on
+  // Left side team serves from BR (slot 1), right side team serves from BL (slot 5)
+  const servingSlot: RotationSlot = teamId === leftTeam ? 1 : 5;
+  const isServer = !!playerId && teamId === servingTeam && slot === servingSlot;
 
   function handlePrimaryClick() {
     if (!playerId) {
@@ -114,6 +120,7 @@ function CourtSlot({ teamId, slot }: { teamId: TeamId; slot: RotationSlot }) {
         "bg-gray-100 cursor-pointer select-none",
         isSelected ? "ring-4 ring-blue-400" : "hover:shadow-md",
         isOver ? "ring-4 ring-emerald-400 bg-emerald-50" : "",
+        isServer ? "ring-4 ring-yellow-300 shadow-lg shadow-yellow-300/30" : "",
       ].join(" ")}
       onClick={handlePrimaryClick}
       role="button"
@@ -121,13 +128,23 @@ function CourtSlot({ teamId, slot }: { teamId: TeamId; slot: RotationSlot }) {
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") handlePrimaryClick();
       }}
-      title={playerId ? "Open scoring" : "Assign a player"}
+      title={isServer ? "Serving player" : playerId ? "Open scoring" : "Assign a player"}
     >
+      {/* Slot label */}
       <div className="flex items-center justify-between">
         <div className="text-[11px] text-black/60 font-bold">{slotLabel[slot]}</div>
-        <div className="text-[10px] font-extrabold text-black/50">{teamId}</div>
+
+        <div className="flex items-center gap-2">
+          {isServer && (
+            <div className="text-[10px] font-black px-2 py-[2px] rounded-full bg-yellow-300 text-black">
+              SERVE
+            </div>
+          )}
+          <div className="text-[10px] font-extrabold text-black/50">{teamId}</div>
+        </div>
       </div>
 
+      {/* Player info */}
       <div className="mt-1 flex-1 flex flex-col justify-center">
         {player ? (
           <>
@@ -140,6 +157,7 @@ function CourtSlot({ teamId, slot }: { teamId: TeamId; slot: RotationSlot }) {
         )}
       </div>
 
+      {/* Button */}
       <div className="mt-2">
         <button
           type="button"
@@ -153,9 +171,7 @@ function CourtSlot({ teamId, slot }: { teamId: TeamId; slot: RotationSlot }) {
           }}
           className={[
             "w-full rounded-md px-2 py-1 text-xs font-extrabold",
-            playerId
-              ? "bg-[var(--brand-sky)] text-white hover:opacity-90"
-              : "bg-white border border-black/10 text-black hover:bg-gray-50",
+            playerId ? "bg-[var(--brand-sky)] text-white hover:opacity-90" : "bg-white border border-black/10 text-black hover:bg-gray-50",
           ].join(" ")}
         >
           {playerId ? "SCORE" : "ASSIGN"}
