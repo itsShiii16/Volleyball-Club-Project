@@ -5,33 +5,31 @@ import type { RotationSlot, TeamId } from "@/lib/volleyball";
 import { slotLabel } from "@/lib/volleyball";
 import { useDroppable } from "@dnd-kit/core";
 
+const opponentOf = (teamId: TeamId): TeamId => (teamId === "A" ? "B" : "A");
+
 export default function Court() {
+  const leftTeam = useMatchStore((s) => s.leftTeam);
+  const rightTeam = opponentOf(leftTeam);
+
   return (
     <div className="w-full max-w-6xl mx-auto aspect-[4/3] rounded-2xl bg-sky-500 p-8 shadow-sm">
-      {/* Court frame */}
       <div className="relative h-full w-full rounded-xl border-[6px] border-white/90 bg-amber-400">
-        {/* Inner court border line */}
         <div className="absolute inset-4 rounded-lg border-[4px] border-white/90" />
 
-        {/* Center net line */}
         <div className="absolute left-1/2 top-4 bottom-4 w-[6px] -translate-x-1/2 bg-white/90 rounded" />
 
-        {/* Net pole */}
         <div className="absolute left-1/2 top-[10%] bottom-[10%] w-[10px] -translate-x-1/2 bg-gray-500 rounded-full shadow" />
-        {/* Pole caps */}
         <div className="absolute left-1/2 top-[8%] h-4 w-4 -translate-x-1/2 rounded-full bg-blue-900" />
         <div className="absolute left-1/2 bottom-[8%] h-4 w-4 -translate-x-1/2 rounded-full bg-blue-900" />
 
-        {/* Side dashed markers */}
         <DashedMarker className="absolute left-[49%] top-[-22px]" />
         <DashedMarker className="absolute left-[49%] bottom-[-22px] rotate-180" />
         <DashedMarker className="absolute right-[49%] top-[-22px]" />
         <DashedMarker className="absolute right-[49%] bottom-[-22px] rotate-180" />
 
-        {/* Left + Right halves */}
         <div className="absolute inset-4 grid grid-cols-2 gap-0">
-          <TeamHalf teamId="A" side="left" />
-          <TeamHalf teamId="B" side="right" />
+          <TeamHalf teamId={leftTeam} side="left" />
+          <TeamHalf teamId={rightTeam} side="right" />
         </div>
       </div>
     </div>
@@ -41,12 +39,7 @@ export default function Court() {
 function TeamHalf({ side, teamId }: { side: "left" | "right"; teamId: TeamId }) {
   const isLeft = side === "left";
 
-  /**
-   * Both teams FACE the net.
-   * Near-net column:
-   * - Left team: near-net column is the RIGHT column
-   * - Right team: near-net column is the LEFT column
-   */
+  // Both teams face the net
   const nearNetFirst = !isLeft;
 
   const BackCol = (
@@ -65,15 +58,10 @@ function TeamHalf({ side, teamId }: { side: "left" | "right"; teamId: TeamId }) 
     </div>
   );
 
-  /**
-   * ✅ CLEAN FIX:
-   * Add more padding on the NET-side of each team half.
-   * - Team A (left half): net side is RIGHT -> add more pr
-   * - Team B (right half): net side is LEFT -> add more pl
-   *
-   * This shifts both halves away from the net equally and makes spacing symmetrical.
-   */
-  const innerPadding = isLeft ? "pl-4 pr-10" : "pl-5 pr-10";
+  // ✅ Symmetric padding:
+  // - Left half: more padding at left endline, less near net (right)
+  // - Right half: more padding at right endline, less near net (left)
+  const innerPadding = isLeft ? "pl-4 pr-10" : "pl-4 pr-10";
 
   return (
     <div
@@ -102,7 +90,6 @@ function CourtSlot({ teamId, slot }: { teamId: TeamId; slot: RotationSlot }) {
   const playerId = court[slot];
   const player = players.find((p) => p.id === playerId);
 
-  // droppable target for drag-drop bench rails
   const dropId = `${teamId}-${slot}`;
   const { setNodeRef, isOver } = useDroppable({
     id: dropId,
@@ -112,8 +99,6 @@ function CourtSlot({ teamId, slot }: { teamId: TeamId; slot: RotationSlot }) {
   const isSelected = selected?.teamId === teamId && selected?.slot === slot;
 
   function handlePrimaryClick() {
-    // clicking the square goes straight to scoring
-    // If empty, open bench selection instead (so user can assign)
     if (!playerId) {
       selectSlot(teamId, slot, "bench");
       return;
@@ -138,13 +123,11 @@ function CourtSlot({ teamId, slot }: { teamId: TeamId; slot: RotationSlot }) {
       }}
       title={playerId ? "Open scoring" : "Assign a player"}
     >
-      {/* Slot label */}
       <div className="flex items-center justify-between">
         <div className="text-[11px] text-black/60 font-bold">{slotLabel[slot]}</div>
         <div className="text-[10px] font-extrabold text-black/50">{teamId}</div>
       </div>
 
-      {/* Player info */}
       <div className="mt-1 flex-1 flex flex-col justify-center">
         {player ? (
           <>
@@ -157,7 +140,6 @@ function CourtSlot({ teamId, slot }: { teamId: TeamId; slot: RotationSlot }) {
         )}
       </div>
 
-      {/* Only action left: SCORE (optional, but makes it obvious) */}
       <div className="mt-2">
         <button
           type="button"
@@ -175,7 +157,6 @@ function CourtSlot({ teamId, slot }: { teamId: TeamId; slot: RotationSlot }) {
               ? "bg-[var(--brand-sky)] text-white hover:opacity-90"
               : "bg-white border border-black/10 text-black hover:bg-gray-50",
           ].join(" ")}
-          title={playerId ? "Open scoresheet" : "Assign player"}
         >
           {playerId ? "SCORE" : "ASSIGN"}
         </button>

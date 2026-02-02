@@ -31,11 +31,26 @@ export default function Home() {
 
   const scoreA = useMatchStore((s) => s.scoreA);
   const scoreB = useMatchStore((s) => s.scoreB);
+
+  // ✅ serve selector
   const servingTeam = useMatchStore((s) => s.servingTeam);
+  const setServingTeam = useMatchStore((s) => s.setServingTeam);
+
+  // ✅ side switching (A/B on left/right)
+  const leftTeam = useMatchStore((s) => s.leftTeam);
+  const swapSides = useMatchStore((s) => s.swapSides);
+  const rightTeam = leftTeam === "A" ? "B" : "A";
+
   const undoLastEvent = useMatchStore((s) => s.undoLastEvent);
 
-  const teamA = useMemo(() => players.filter((p) => p.teamId === "A"), [players]);
-  const teamB = useMemo(() => players.filter((p) => p.teamId === "B"), [players]);
+  const teamA = useMemo(
+    () => players.filter((p) => p.teamId === "A"),
+    [players]
+  );
+  const teamB = useMemo(
+    () => players.filter((p) => p.teamId === "B"),
+    [players]
+  );
 
   const rosterReady = teamA.length >= 6 && teamB.length >= 6;
 
@@ -132,8 +147,52 @@ export default function Home() {
               <div className="bg-white rounded-lg px-4 py-2 shadow text-black font-extrabold">
                 A {scoreA} – {scoreB} B
               </div>
-              <div className="text-white text-sm font-semibold">
-                Serving: <b className="text-white">{servingTeam}</b>
+
+              {/* ✅ Serving selector */}
+              <div className="flex items-center gap-2">
+                <div className="text-white text-sm font-semibold">
+                  Serving: <b className="text-white">{servingTeam}</b>
+                </div>
+
+                <button
+                  onClick={() => setServingTeam("A")}
+                  className={[
+                    "px-3 py-2 rounded-lg font-semibold shadow transition",
+                    servingTeam === "A"
+                      ? "bg-[var(--brand-sky)] text-white"
+                      : "bg-white text-black hover:shadow-md",
+                  ].join(" ")}
+                  title="Set Team A to serve"
+                >
+                  Serve A
+                </button>
+
+                <button
+                  onClick={() => setServingTeam("B")}
+                  className={[
+                    "px-3 py-2 rounded-lg font-semibold shadow transition",
+                    servingTeam === "B"
+                      ? "bg-[var(--brand-sky)] text-white"
+                      : "bg-white text-black hover:shadow-md",
+                  ].join(" ")}
+                  title="Set Team B to serve"
+                >
+                  Serve B
+                </button>
+              </div>
+
+              {/* ✅ Court side switching */}
+              <button
+                onClick={swapSides}
+                className="px-4 py-2 rounded-lg font-semibold shadow bg-white text-black hover:shadow-md"
+                title="Swap which side Team A/B is shown on (like switching ends after a set)"
+              >
+                Swap Sides
+              </button>
+
+              <div className="text-white/90 text-xs font-semibold px-2">
+                Left: <b className="text-white">{leftTeam}</b> • Right:{" "}
+                <b className="text-white">{rightTeam}</b>
               </div>
 
               <button

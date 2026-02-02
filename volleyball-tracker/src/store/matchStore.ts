@@ -26,44 +26,33 @@ const normKey = (v: unknown) =>
   String(v)
     .trim()
     .toUpperCase()
-    .replace(/[^\w\s-]/g, "") // remove punctuation
-    .replace(/[\s-]+/g, "_"); // spaces/dashes -> underscore
+    .replace(/[^\w\s-]/g, "")
+    .replace(/[\s-]+/g, "_");
 
 // Rotation order used everywhere
 const ROTATION_ORDER: RotationSlot[] = [1, 6, 5, 4, 3, 2];
 
-// Forward rotation = "shift right by 1" (matches your original)
+// Forward rotation = "shift right by 1"
 const rotateCourtForward = (court: CourtState): CourtState => {
   const next: CourtState = { ...court };
   const current = ROTATION_ORDER.map((s) => next[s]);
-  current.unshift(current.pop()!); // right shift
+  current.unshift(current.pop()!);
   ROTATION_ORDER.forEach((s, idx) => {
     next[s] = current[idx] ?? null;
   });
   return next;
 };
 
-// Backward rotation = inverse of forward (shift left by 1)
+// Backward rotation = inverse (shift left by 1)
 const rotateCourtBackward = (court: CourtState): CourtState => {
   const next: CourtState = { ...court };
   const current = ROTATION_ORDER.map((s) => next[s]);
-  current.push(current.shift()!); // left shift
+  current.push(current.shift()!);
   ROTATION_ORDER.forEach((s, idx) => {
     next[s] = current[idx] ?? null;
   });
   return next;
 };
-
-/**
- * IMPORTANT:
- * Team B is drawn on the RIGHT facing left, so to make rotation look correct on screen
- * we rotate Team B in the opposite direction compared to Team A.
- */
-const rotateForwardForTeam = (teamId: TeamId, court: CourtState): CourtState =>
-  teamId === "A" ? rotateCourtForward(court) : rotateCourtBackward(court);
-
-const rotateBackwardForTeam = (teamId: TeamId, court: CourtState): CourtState =>
-  teamId === "A" ? rotateCourtBackward(court) : rotateCourtForward(court);
 
 /**
  * Internal event stores enough metadata to UNDO scoring + sideout rotation.
@@ -83,7 +72,6 @@ type InternalEvent = {
   prevServingTeam: TeamId;
   didSideoutRotate: boolean;
 
-  // debug helpers
   skillKey: string;
   outcomeKey: string;
 };
@@ -92,22 +80,25 @@ type MatchStore = {
   // Rosters
   players: Player[];
 
-  // On-court assignments per team
+  // Courts
   courtA: CourtState;
   courtB: CourtState;
 
+  // Which team is drawn on the LEFT side of the court
+  leftTeam: TeamId;
+  setLeftTeam: (teamId: TeamId) => void;
+  swapSides: () => void;
+
   // UI selection
   selected: { teamId: TeamId; slot: RotationSlot; mode?: "default" | "bench" } | null;
+  selectSlot: (teamId: TeamId, slot: RotationSlot, mode?: "default" | "bench") => void;
+  clearSelection: () => void;
 
-  // Roster actions (UI-driven)
+  // Roster actions
   setPlayers: (players: Player[]) => void;
   addPlayer: (player: Player) => void;
   updatePlayer: (id: string, patch: Partial<Player>) => void;
   removePlayer: (id: string) => void;
-
-  // Slot selection actions
-  selectSlot: (teamId: TeamId, slot: RotationSlot, mode?: "default" | "bench") => void;
-  clearSelection: () => void;
 
   // Court slot actions
   assignPlayerToSlot: (teamId: TeamId, slot: RotationSlot, playerId: string) => void;
@@ -144,259 +135,242 @@ type MatchStore = {
 
 export const useMatchStore = create<MatchStore>()(
   persist(
-    (set, get) => ({
-      // Rosters
-      players: [],
+    (set, get) => {
+      // ✅ Rotation direction now depends on WHICH SIDE the team is on
+      const isTeamOnLeft = (teamId: TeamId) => get().leftTeam === teamId;
 
-      // Courts
-      courtA: emptyCourt(),
-      courtB: emptyCourt(),
+      const rotateForwardForTeam = (teamId: TeamId, court: CourtState) =>
+        isTeamOnLeft(teamId) ? rotateCourtForward(court) : rotateCourtBackward(court);
 
-      // UI selection
-      selected: null,
+      const rotateBackwardForTeam = (teamId: TeamId, court: CourtState) =>
+        isTeamOnLeft(teamId) ? rotateCourtBackward(court) : rotateCourtForward(court);
 
-      // Roster actions
-      setPlayers: (players) => set({ players }),
-      addPlayer: (player) => set((state) => ({ players: [...state.players, player] })),
-      updatePlayer: (id, patch) =>
-        set((state) => ({
-          players: state.players.map((p) => (p.id === id ? { ...p, ...patch } : p)),
-        })),
-      removePlayer: (id) => set((state) => ({ players: state.players.filter((p) => p.id !== id) })),
+      return {
+        players: [],
+        courtA: emptyCourt(),
+        courtB: emptyCourt(),
 
-      // Slot selection
-      selectSlot: (teamId, slot, mode = "default") =>
-      set({ selected: { teamId, slot, mode } }),
-      clearSelection: () => set({ selected: null }),
+        // Default layout: A on left, B on right
+        leftTeam: "A",
+        setLeftTeam: (teamId) => set({ leftTeam: teamId }),
+        swapSides: () =>
+          set((state) => ({ leftTeam: state.leftTeam === "A" ? "B" : "A" })),
 
-      // Court slot actions
-      assignPlayerToSlot: (teamId, slot, playerId) =>
-        set((state) => {
-          const key: "courtA" | "courtB" = teamId === "A" ? "courtA" : "courtB";
-          const court: CourtState = { ...state[key] };
+        selected: null,
+        selectSlot: (teamId, slot, mode = "default") => set({ selected: { teamId, slot, mode } }),
+        clearSelection: () => set({ selected: null }),
 
-          // Prevent duplicates on same team's court
-          const alreadyOnCourt = Object.values(court).includes(playerId);
-          if (alreadyOnCourt) return state;
+        setPlayers: (players) => set({ players }),
+        addPlayer: (player) => set((state) => ({ players: [...state.players, player] })),
+        updatePlayer: (id, patch) =>
+          set((state) => ({
+            players: state.players.map((p) => (p.id === id ? { ...p, ...patch } : p)),
+          })),
+        removePlayer: (id) => set((state) => ({ players: state.players.filter((p) => p.id !== id) })),
 
-          court[slot] = playerId;
-          return { ...state, [key]: court };
-        }),
+        assignPlayerToSlot: (teamId, slot, playerId) =>
+          set((state) => {
+            const key: "courtA" | "courtB" = teamId === "A" ? "courtA" : "courtB";
+            const court: CourtState = { ...state[key] };
 
-      substituteInSlot: (teamId, slot, newPlayerId) => {
-        get().assignPlayerToSlot(teamId, slot, newPlayerId);
-      },
+            // Prevent duplicates on same team's court
+            const alreadyOnCourt = Object.values(court).includes(playerId);
+            if (alreadyOnCourt) return state;
 
-      clearSlot: (teamId, slot) =>
-        set((state) => {
-          const key: "courtA" | "courtB" = teamId === "A" ? "courtA" : "courtB";
-          const court: CourtState = { ...state[key] };
-          court[slot] = null;
-          return { ...state, [key]: court };
-        }),
+            court[slot] = playerId;
+            return { ...state, [key]: court };
+          }),
 
-      // Helpers
-      getOnCourtPlayerIds: (teamId) => {
-        const state = get();
-        const court = teamId === "A" ? state.courtA : state.courtB;
-        return Object.values(court).filter(Boolean) as string[];
-      },
+        substituteInSlot: (teamId, slot, newPlayerId) => {
+          get().assignPlayerToSlot(teamId, slot, newPlayerId);
+        },
 
-      // Rotation (manual) — mirrored for Team B
-      rotateTeam: (teamId) =>
-        set((state) => {
-          const key: "courtA" | "courtB" = teamId === "A" ? "courtA" : "courtB";
+        clearSlot: (teamId, slot) =>
+          set((state) => {
+            const key: "courtA" | "courtB" = teamId === "A" ? "courtA" : "courtB";
+            const court: CourtState = { ...state[key] };
+            court[slot] = null;
+            return { ...state, [key]: court };
+          }),
+
+        getOnCourtPlayerIds: (teamId) => {
+          const state = get();
           const court = teamId === "A" ? state.courtA : state.courtB;
-          const rotated = rotateForwardForTeam(teamId, court);
-          return { ...state, [key]: rotated };
-        }),
+          return Object.values(court).filter(Boolean) as string[];
+        },
 
-      rotateTeamBackward: (teamId) =>
-        set((state) => {
-          const key: "courtA" | "courtB" = teamId === "A" ? "courtA" : "courtB";
-          const court = teamId === "A" ? state.courtA : state.courtB;
-          const rotated = rotateBackwardForTeam(teamId, court);
-          return { ...state, [key]: rotated };
-        }),
+        // Manual rotations (direction depends on side)
+        rotateTeam: (teamId) =>
+          set((state) => {
+            const key: "courtA" | "courtB" = teamId === "A" ? "courtA" : "courtB";
+            const court = teamId === "A" ? state.courtA : state.courtB;
+            return { ...state, [key]: rotateForwardForTeam(teamId, court) };
+          }),
 
-      // Scoresheet UI
-      activeScoresheet: null,
-      openScoresheet: (teamId, slot) => set({ activeScoresheet: { teamId, slot } }),
-      closeScoresheet: () => set({ activeScoresheet: null }),
+        rotateTeamBackward: (teamId) =>
+          set((state) => {
+            const key: "courtA" | "courtB" = teamId === "A" ? "courtA" : "courtB";
+            const court = teamId === "A" ? state.courtA : state.courtB;
+            return { ...state, [key]: rotateBackwardForTeam(teamId, court) };
+          }),
 
-      // SCOREBOARD
-      scoreA: 0,
-      scoreB: 0,
-      servingTeam: "A",
-      setServingTeam: (teamId) => set({ servingTeam: teamId }),
+        activeScoresheet: null,
+        openScoresheet: (teamId, slot) => set({ activeScoresheet: { teamId, slot } }),
+        closeScoresheet: () => set({ activeScoresheet: null }),
 
-      // Event log
-      events: [],
+        scoreA: 0,
+        scoreB: 0,
+        servingTeam: "A",
+        setServingTeam: (teamId) => set({ servingTeam: teamId }),
 
-      logEvent: ({ teamId, slot, skill, outcome }) =>
-        set((state) => {
-          const court = teamId === "A" ? state.courtA : state.courtB;
-          const playerId = court[slot];
-          if (!playerId) return state;
+        events: [],
 
-          // Normalize once (IMPORTANT: your UI uses SUCCESS a lot)
-          const skillKey = normKey(skill);
-          const outcomeKey = normKey(outcome);
+        logEvent: ({ teamId, slot, skill, outcome }) =>
+          set((state) => {
+            const court = teamId === "A" ? state.courtA : state.courtB;
+            const playerId = court[slot];
+            if (!playerId) return state;
 
-          // --- Point decision (skill + outcome) ---
-          let pointWinner: TeamId | undefined;
+            const skillKey = normKey(skill);
+            const outcomeKey = normKey(outcome);
 
-          const ERROR_OUTCOMES = new Set([
-            "ERROR",
-            "ATTACK_ERROR",
-            "SERVE_ERROR",
-            "SERVICE_ERROR",
-            "BLOCK_ERROR",
-            "RECEIVE_ERROR",
-            "DIG_ERROR",
-            "FAULT",
-            "OUT",
-            "NET",
-          ]);
+            let pointWinner: TeamId | undefined;
 
-          const isError =
-            ERROR_OUTCOMES.has(outcomeKey) ||
-            outcomeKey.includes("ERROR") ||
-            outcomeKey.includes("FAULT");
-
-          if (isError) {
-            pointWinner = opponentOf(teamId);
-          } else {
-            const WIN_OUTCOMES = new Set([
-              "SUCCESS", // <- your buttons send this
-              "KILL",
-              "KILL_BLOCK",
-              "ACE",
-              "POINT",
-              "WIN",
-              "STUFF",
-              "BLOCK_POINT",
+            const ERROR_OUTCOMES = new Set([
+              "ERROR",
+              "ATTACK_ERROR",
+              "SERVE_ERROR",
+              "SERVICE_ERROR",
+              "BLOCK_ERROR",
+              "RECEIVE_ERROR",
+              "DIG_ERROR",
+              "FAULT",
+              "OUT",
+              "NET",
             ]);
 
-            const isWin =
-              WIN_OUTCOMES.has(outcomeKey) ||
-              outcomeKey.includes("KILL") ||
-              outcomeKey.includes("ACE");
+            const isError =
+              ERROR_OUTCOMES.has(outcomeKey) ||
+              outcomeKey.includes("ERROR") ||
+              outcomeKey.includes("FAULT");
 
-            const isServe = skillKey.includes("SERVE");
-            const isSpike =
-              skillKey.includes("SPIKE") ||
-              skillKey.includes("ATTACK") ||
-              skillKey === "HIT";
-            const isBlock = skillKey.includes("BLOCK");
+            if (isError) {
+              pointWinner = opponentOf(teamId);
+            } else {
+              const WIN_OUTCOMES = new Set([
+                "SUCCESS",
+                "KILL",
+                "KILL_BLOCK",
+                "ACE",
+                "POINT",
+                "WIN",
+                "STUFF",
+                "BLOCK_POINT",
+              ]);
 
-            // Only these skills can directly award a rally point
-            if ((isServe || isSpike || isBlock) && isWin) {
-              pointWinner = teamId;
-            }
-          }
+              const isWin =
+                WIN_OUTCOMES.has(outcomeKey) ||
+                outcomeKey.includes("KILL") ||
+                outcomeKey.includes("ACE");
 
-          // --- Snapshot for undo ---
-          const prevScoreA = state.scoreA;
-          const prevScoreB = state.scoreB;
-          const prevServingTeam = state.servingTeam;
+              const isServe = skillKey.includes("SERVE");
+              const isSpike = skillKey.includes("SPIKE") || skillKey.includes("ATTACK") || skillKey === "HIT";
+              const isBlock = skillKey.includes("BLOCK");
 
-          let nextScoreA = state.scoreA;
-          let nextScoreB = state.scoreB;
-          let nextServingTeam = state.servingTeam;
-
-          let nextCourtA = state.courtA;
-          let nextCourtB = state.courtB;
-
-          let didSideoutRotate = false;
-
-          // --- Apply scoring + sideout (rotation mirrored for Team B) ---
-          if (pointWinner) {
-            if (pointWinner === "A") nextScoreA += 1;
-            else nextScoreB += 1;
-
-            // Side-out: if winner wasn't serving, they gain serve and rotate
-            if (pointWinner !== state.servingTeam) {
-              didSideoutRotate = true;
-              nextServingTeam = pointWinner;
-
-              if (pointWinner === "A") {
-                nextCourtA = rotateForwardForTeam("A", state.courtA);
-              } else {
-                nextCourtB = rotateForwardForTeam("B", state.courtB);
+              if ((isServe || isSpike || isBlock) && isWin) {
+                pointWinner = teamId;
               }
             }
-          }
 
-          // --- Log event (must include skillKey/outcomeKey) ---
-          const e: InternalEvent = {
-            id: crypto.randomUUID(),
-            ts: Date.now(),
-            teamId,
-            playerId,
-            slot,
-            skill,
-            outcome,
-            pointWinner,
-            prevScoreA,
-            prevScoreB,
-            prevServingTeam,
-            didSideoutRotate,
-            skillKey,
-            outcomeKey,
-          };
+            const prevScoreA = state.scoreA;
+            const prevScoreB = state.scoreB;
+            const prevServingTeam = state.servingTeam;
 
-          return {
-            ...state,
-            scoreA: nextScoreA,
-            scoreB: nextScoreB,
-            servingTeam: nextServingTeam,
-            courtA: nextCourtA,
-            courtB: nextCourtB,
-            events: [e, ...state.events],
-          };
-        }),
+            let nextScoreA = state.scoreA;
+            let nextScoreB = state.scoreB;
+            let nextServingTeam = state.servingTeam;
 
-      undoLastEvent: () =>
-        set((state) => {
-          if (state.events.length === 0) return state;
+            let nextCourtA = state.courtA;
+            let nextCourtB = state.courtB;
 
-          const [last, ...rest] = state.events;
+            let didSideoutRotate = false;
 
-          let nextCourtA = state.courtA;
-          let nextCourtB = state.courtB;
+            // Sideout rotation also depends on which side the winning team is on
+            if (pointWinner) {
+              if (pointWinner === "A") nextScoreA += 1;
+              else nextScoreB += 1;
 
-          // If last event caused sideout rotation, undo it (mirrored for Team B)
-          if (last.didSideoutRotate && last.pointWinner) {
-            if (last.pointWinner === "A") {
-              nextCourtA = rotateBackwardForTeam("A", state.courtA);
-            } else {
-              nextCourtB = rotateBackwardForTeam("B", state.courtB);
+              if (pointWinner !== state.servingTeam) {
+                didSideoutRotate = true;
+                nextServingTeam = pointWinner;
+
+                if (pointWinner === "A") nextCourtA = rotateForwardForTeam("A", state.courtA);
+                else nextCourtB = rotateForwardForTeam("B", state.courtB);
+              }
             }
-          }
 
-          return {
-            ...state,
-            scoreA: last.prevScoreA,
-            scoreB: last.prevScoreB,
-            servingTeam: last.prevServingTeam,
-            courtA: nextCourtA,
-            courtB: nextCourtB,
-            events: rest,
-          };
-        }),
+            const e: InternalEvent = {
+              id: crypto.randomUUID(),
+              ts: Date.now(),
+              teamId,
+              playerId,
+              slot,
+              skill,
+              outcome,
+              pointWinner,
+              prevScoreA,
+              prevScoreB,
+              prevServingTeam,
+              didSideoutRotate,
+              skillKey,
+              outcomeKey,
+            };
 
-      // Resets
-      resetCourt: (teamId) =>
-        set((state) => {
-          if (teamId === "A") return { ...state, courtA: emptyCourt() };
-          return { ...state, courtB: emptyCourt() };
-        }),
+            return {
+              ...state,
+              scoreA: nextScoreA,
+              scoreB: nextScoreB,
+              servingTeam: nextServingTeam,
+              courtA: nextCourtA,
+              courtB: nextCourtB,
+              events: [e, ...state.events],
+            };
+          }),
+
+        undoLastEvent: () =>
+          set((state) => {
+            if (state.events.length === 0) return state;
+
+            const [last, ...rest] = state.events;
+
+            let nextCourtA = state.courtA;
+            let nextCourtB = state.courtB;
+
+            if (last.didSideoutRotate && last.pointWinner) {
+              if (last.pointWinner === "A") nextCourtA = rotateBackwardForTeam("A", state.courtA);
+              else nextCourtB = rotateBackwardForTeam("B", state.courtB);
+            }
+
+            return {
+              ...state,
+              scoreA: last.prevScoreA,
+              scoreB: last.prevScoreB,
+              servingTeam: last.prevServingTeam,
+              courtA: nextCourtA,
+              courtB: nextCourtB,
+              events: rest,
+            };
+          }),
+
+        resetCourt: (teamId) =>
+          set((state) => {
+            if (teamId === "A") return { ...state, courtA: emptyCourt() };
+            return { ...state, courtB: emptyCourt() };
+          }),
 
       resetMatch: () =>
         set((state) => ({
           ...state,
-          // keep roster, but clear match state
           courtA: emptyCourt(),
           courtB: emptyCourt(),
           selected: null,
@@ -404,13 +378,14 @@ export const useMatchStore = create<MatchStore>()(
           events: [],
           scoreA: 0,
           scoreB: 0,
-          servingTeam: "A",
+          // ✅ keep whatever the user selected
+          servingTeam: state.servingTeam,
         })),
-    }),
+      };
+    },
     {
       name: "vb-match-store",
       version: 1,
-      // Persist only what you need; avoids stale UI popups after refresh
       partialize: (state) => ({
         players: state.players,
         courtA: state.courtA,
@@ -419,6 +394,7 @@ export const useMatchStore = create<MatchStore>()(
         scoreB: state.scoreB,
         servingTeam: state.servingTeam,
         events: state.events,
+        leftTeam: state.leftTeam, // ✅ persist court side
       }),
     }
   )
