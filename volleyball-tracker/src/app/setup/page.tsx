@@ -17,6 +17,11 @@ export default function SetupPage() {
   const removePlayer = useMatchStore((s) => s.removePlayer);
   const setPlayers = useMatchStore((s) => s.setPlayers);
 
+  // ✅ Libero auto-sub config (from patched matchStore)
+  const liberoConfigA = useMatchStore((s) => s.liberoConfigA);
+  const liberoConfigB = useMatchStore((s) => s.liberoConfigB);
+  const setLiberoConfig = useMatchStore((s) => s.setLiberoConfig);
+
   const teamA = useMemo(() => players.filter((p) => p.teamId === "A"), [players]);
   const teamB = useMemo(() => players.filter((p) => p.teamId === "B"), [players]);
 
@@ -133,6 +138,24 @@ export default function SetupPage() {
           </div>
         </div>
 
+        {/* ✅ Libero Auto-Sub Controls */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+          <LiberoAutoSubCard
+            title="Libero Auto-Sub (Team A)"
+            teamId="A"
+            players={teamA}
+            config={liberoConfigA}
+            setConfig={setLiberoConfig}
+          />
+          <LiberoAutoSubCard
+            title="Libero Auto-Sub (Team B)"
+            teamId="B"
+            players={teamB}
+            config={liberoConfigB}
+            setConfig={setLiberoConfig}
+          />
+        </div>
+
         {/* Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <TeamPanel
@@ -164,7 +187,9 @@ export default function SetupPage() {
                 ✓ Both teams have at least 6 players.
               </span>
             ) : (
-              <span>Add at least <b>6 players per team</b> to start.</span>
+              <span>
+                Add at least <b>6 players per team</b> to start.
+              </span>
             )}
           </div>
 
@@ -183,6 +208,119 @@ export default function SetupPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+/* ------------------ LIBERO AUTO-SUB CARD ------------------ */
+
+function LiberoAutoSubCard({
+  title,
+  teamId,
+  players,
+  config,
+  setConfig,
+}: {
+  title: string;
+  teamId: TeamId;
+  players: Player[];
+  config: { enabled: boolean; liberoId: string | null; mbId: string | null } | null;
+  setConfig: (
+    teamId: TeamId,
+    cfg: { enabled: boolean; liberoId: string | null; mbId: string | null }
+  ) => void;
+}) {
+  const liberoOptions = players.filter(
+    (p) => p.position === "L" || p.position === ("LIBERO" as any)
+  );
+  const mbOptions = players.filter((p) => p.position === "MB");
+
+  const enabled = config?.enabled ?? false;
+  const liberoId = config?.liberoId ?? null;
+  const mbId = config?.mbId ?? null;
+
+  return (
+    <section className="bg-white rounded-xl shadow p-4">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="font-extrabold text-lg text-black">{title}</h2>
+
+        <label className="flex items-center gap-2 text-sm font-semibold text-black">
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={(e) =>
+              setConfig(teamId, {
+                enabled: e.target.checked,
+                liberoId,
+                mbId,
+              })
+            }
+          />
+          Enable
+        </label>
+      </div>
+
+      <div className="mt-3 grid grid-cols-1 gap-3">
+        <div>
+          <div className="text-xs font-bold text-black/60 mb-1">Choose Libero</div>
+          <select
+            value={liberoId ?? ""}
+            onChange={(e) =>
+              setConfig(teamId, {
+                enabled,
+                liberoId: e.target.value || null,
+                mbId,
+              })
+            }
+            className="w-full border rounded-lg px-3 py-2 bg-white text-black"
+          >
+            <option value="">— Select Libero —</option>
+            {liberoOptions.map((p) => (
+              <option key={p.id} value={p.id}>
+                #{p.jerseyNumber} {p.name || "(No name)"} • {p.position}
+              </option>
+            ))}
+          </select>
+          {liberoOptions.length === 0 && (
+            <div className="mt-1 text-xs text-amber-700 font-semibold">
+              Add at least one player with position <b>L</b>.
+            </div>
+          )}
+        </div>
+
+        <div>
+          <div className="text-xs font-bold text-black/60 mb-1">Choose MB to be replaced</div>
+          <select
+            value={mbId ?? ""}
+            onChange={(e) =>
+              setConfig(teamId, {
+                enabled,
+                liberoId,
+                mbId: e.target.value || null,
+              })
+            }
+            className="w-full border rounded-lg px-3 py-2 bg-white text-black"
+          >
+            <option value="">— Select Middle Blocker —</option>
+            {mbOptions.map((p) => (
+              <option key={p.id} value={p.id}>
+                #{p.jerseyNumber} {p.name || "(No name)"} • {p.position}
+              </option>
+            ))}
+          </select>
+          {mbOptions.length === 0 && (
+            <div className="mt-1 text-xs text-amber-700 font-semibold">
+              Add at least one player with position <b>MB</b>.
+            </div>
+          )}
+        </div>
+
+        <div className="text-xs text-black/60 font-semibold leading-snug">
+          Auto-sub will swap your selected <b>Libero</b> in for the selected <b>MB</b> whenever
+          that MB is in the <b>back row (1/5/6)</b>, and swap the MB back when rotating to the{" "}
+          <b>front row (2/3/4)</b>.
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -223,7 +361,10 @@ function TeamPanel({
           const dup = jerseyDuplicate(teamId, p.jerseyNumber, p.id);
 
           return (
-            <div key={p.id} className="grid grid-cols-[1fr_90px_90px_auto] gap-2 items-center">
+            <div
+              key={p.id}
+              className="grid grid-cols-[1fr_90px_90px_auto] gap-2 items-center"
+            >
               <input
                 value={p.name}
                 placeholder="Name"
@@ -258,10 +399,7 @@ function TeamPanel({
                 ))}
               </select>
 
-              <button
-                onClick={() => onRemove(p.id)}
-                className="text-red-600 font-bold"
-              >
+              <button onClick={() => onRemove(p.id)} className="text-red-600 font-bold">
                 ✕
               </button>
 

@@ -20,6 +20,14 @@ export default function SlotPanel() {
   const courtA = useMatchStore((s) => s.courtA);
   const courtB = useMatchStore((s) => s.courtB);
 
+  // ✅ Libero automation config/state
+  const liberoConfigA = useMatchStore((s) => s.liberoConfigA);
+  const liberoConfigB = useMatchStore((s) => s.liberoConfigB);
+  const setLiberoConfig = useMatchStore((s) => s.setLiberoConfig);
+
+  const liberoSwapA = useMatchStore((s) => s.liberoSwapA);
+  const liberoSwapB = useMatchStore((s) => s.liberoSwapB);
+
   const [swapMode, setSwapMode] = useState(false);
   const [swapPick, setSwapPick] = useState<{ teamId: TeamId; slot: RotationSlot } | null>(null);
 
@@ -45,8 +53,47 @@ export default function SlotPanel() {
       .filter((p) => !onCourtIds.has(p.id))
       .sort((a, b) => a.jerseyNumber - b.jerseyNumber);
 
-    return { teamId, slot, player, onCourt, bench };
-  }, [selected, players, courtA, courtB, getOnCourtPlayerIds]);
+    const cfg = teamId === "A" ? liberoConfigA : liberoConfigB;
+    const swap = teamId === "A" ? liberoSwapA : liberoSwapB;
+
+    const libero =
+      cfg.liberoId ? roster.find((p) => p.id === cfg.liberoId) ?? null : null;
+    const mb =
+      cfg.mbId ? roster.find((p) => p.id === cfg.mbId) ?? null : null;
+
+    // If swap is active: show who is currently being replaced on THIS slot
+    const isAutoLiberoOnThisSlot =
+      !!playerId && swap.active && swap.slot === slot && swap.liberoId === playerId;
+
+    const replaced =
+      isAutoLiberoOnThisSlot && swap.mbId
+        ? roster.find((p) => p.id === swap.mbId) ?? null
+        : null;
+
+    return {
+      teamId,
+      slot,
+      player,
+      onCourt,
+      bench,
+      cfg,
+      swap,
+      libero,
+      mb,
+      isAutoLiberoOnThisSlot,
+      replaced,
+    };
+  }, [
+    selected,
+    players,
+    courtA,
+    courtB,
+    getOnCourtPlayerIds,
+    liberoConfigA,
+    liberoConfigB,
+    liberoSwapA,
+    liberoSwapB,
+  ]);
 
   // If opened via SUB, jump directly to Bench
   useEffect(() => {
@@ -62,10 +109,22 @@ export default function SlotPanel() {
     });
   }, [selected]);
 
-  // ✅ Hard guard (after this, we destructure = TS-safe everywhere)
+  // ✅ Hard guard
   if (info === null) return null;
 
-  const { teamId, slot, player, onCourt, bench } = info;
+  const {
+    teamId,
+    slot,
+    player,
+    onCourt,
+    bench,
+    cfg,
+    swap,
+    libero,
+    mb,
+    isAutoLiberoOnThisSlot,
+    replaced,
+  } = info;
 
   const titleTeam = teamId === "A" ? "Team A" : "Team B";
   const courtSlots = teamId === "A" ? courtA : courtB;
@@ -107,6 +166,13 @@ export default function SlotPanel() {
     setSwapMode(false);
   }
 
+  // ✅ update libero config helpers
+  const roster = players.filter((p) => p.teamId === teamId);
+  const liberos = roster.filter((p) => String(p.position).toUpperCase() === "L");
+  const mbs = roster.filter((p) => String(p.position).toUpperCase() === "MB");
+
+  const currentSwapSlotLabel = swap.active && swap.slot ? slotLabel[swap.slot] : null;
+
   return (
     <div className="fixed inset-0 z-50">
       {/* backdrop */}
@@ -129,6 +195,16 @@ export default function SlotPanel() {
                 Position: <b className="text-black">{player.position}</b>
               </div>
             )}
+
+            {/* ✅ show auto-sub info for this slot */}
+            {isAutoLiberoOnThisSlot && replaced && (
+              <div className="mt-2 text-xs font-semibold text-teal-700 bg-teal-50 border border-teal-200 rounded-lg px-3 py-2">
+                Libero auto-sub is active here.
+                <div className="mt-1 text-teal-800">
+                  Replacing: <b>#{replaced.jerseyNumber} {replaced.name}</b> ({replaced.position})
+                </div>
+              </div>
+            )}
           </div>
 
           <button
@@ -137,6 +213,100 @@ export default function SlotPanel() {
           >
             Close
           </button>
+        </div>
+
+        {/* ✅ Libero Automation (Phase 2 #4) */}
+        <div className="mt-4 rounded-xl border border-gray-200 p-3 bg-gray-50">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="text-sm font-extrabold text-black">Libero auto-sub</div>
+              <div className="text-xs text-black/60">
+                Automatically swaps Libero in for a chosen MB when that MB reaches the back row.
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setLiberoConfig(teamId, { enabled: !cfg.enabled })}
+              className={[
+                "px-3 py-2 rounded-lg text-xs font-extrabold shadow",
+                cfg.enabled ? "bg-teal-600 text-white" : "bg-white border text-black",
+              ].join(" ")}
+            >
+              {cfg.enabled ? "ENABLED" : "DISABLED"}
+            </button>
+          </div>
+
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <div>
+              <div className="text-[11px] font-bold text-black/60 mb-1">Libero</div>
+              <select
+                value={cfg.liberoId ?? ""}
+                onChange={(e) => setLiberoConfig(teamId, { liberoId: e.target.value || null })}
+                className="w-full border rounded-lg px-3 py-2 bg-white text-black text-sm"
+              >
+                <option value="">Select Libero…</option>
+                {liberos.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    #{p.jerseyNumber} {p.name}
+                  </option>
+                ))}
+              </select>
+              {cfg.liberoId && !libero && (
+                <div className="mt-1 text-[11px] text-red-600 font-semibold">
+                  Selected Libero not found.
+                </div>
+              )}
+            </div>
+
+            <div>
+              <div className="text-[11px] font-bold text-black/60 mb-1">Middle Blocker to replace</div>
+              <select
+                value={cfg.mbId ?? ""}
+                onChange={(e) => setLiberoConfig(teamId, { mbId: e.target.value || null })}
+                className="w-full border rounded-lg px-3 py-2 bg-white text-black text-sm"
+              >
+                <option value="">Select MB…</option>
+                {mbs.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    #{p.jerseyNumber} {p.name}
+                  </option>
+                ))}
+              </select>
+              {cfg.mbId && !mb && (
+                <div className="mt-1 text-[11px] text-red-600 font-semibold">
+                  Selected MB not found.
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="mt-3 flex flex-col gap-1 text-xs">
+            <div className="text-black/70">
+              Status:{" "}
+              <b className={swap.active ? "text-teal-700" : "text-black"}>
+                {swap.active ? "ACTIVE" : "INACTIVE"}
+              </b>
+              {swap.active && currentSwapSlotLabel ? (
+                <>
+                  {" "}
+                  • Swap slot: <b>{currentSwapSlotLabel}</b>
+                </>
+              ) : null}
+            </div>
+
+            {cfg.enabled && (!cfg.liberoId || !cfg.mbId) && (
+              <div className="text-amber-700 font-semibold">
+                Pick both a Libero and an MB to enable the automation.
+              </div>
+            )}
+
+            {cfg.enabled && cfg.liberoId && cfg.mbId && !swap.active && (
+              <div className="text-black/60">
+                Waiting for the chosen MB to rotate into the back row…
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Actions */}
@@ -185,7 +355,7 @@ export default function SlotPanel() {
               {[4, 3, 2, 5, 6, 1].map((n) => {
                 const s = n as RotationSlot;
                 const pid = courtSlots[s];
-                const p = players.find((x) => x.id === pid);
+                const p = players.find((x) => x.id === pid) || null;
 
                 return (
                   <button

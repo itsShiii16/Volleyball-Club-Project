@@ -85,11 +85,28 @@ function CourtSlot({ teamId, slot }: { teamId: TeamId; slot: RotationSlot }) {
   const openScoresheet = useMatchStore((s) => s.openScoresheet);
 
   const servingTeam = useMatchStore((s) => s.servingTeam);
-  const leftTeam = useMatchStore((s) => s.leftTeam); // ✅ needed to compute server slot
+  const leftTeam = useMatchStore((s) => s.leftTeam); // needed to compute server slot
 
   const court = useMatchStore((s) => (teamId === "A" ? s.courtA : s.courtB));
   const playerId = court[slot];
-  const player = players.find((p) => p.id === playerId);
+  const player = players.find((p) => p.id === playerId) || null;
+
+  // ✅ Libero swap state (to show automatic substitution visually)
+  const liberoSwap =
+    teamId === "A"
+      ? useMatchStore((s) => s.liberoSwapA)
+      : useMatchStore((s) => s.liberoSwapB);
+
+  const isLiberoAutoSub =
+    !!playerId &&
+    liberoSwap.active &&
+    liberoSwap.slot === slot &&
+    liberoSwap.liberoId === playerId;
+
+  const replacedMB =
+    isLiberoAutoSub && liberoSwap.mbId
+      ? players.find((p) => p.id === liberoSwap.mbId) ?? null
+      : null;
 
   const dropId = `${teamId}-${slot}`;
   const { setNodeRef, isOver } = useDroppable({
@@ -121,6 +138,8 @@ function CourtSlot({ teamId, slot }: { teamId: TeamId; slot: RotationSlot }) {
         isSelected ? "ring-4 ring-blue-400" : "hover:shadow-md",
         isOver ? "ring-4 ring-emerald-400 bg-emerald-50" : "",
         isServer ? "ring-4 ring-yellow-300 shadow-lg shadow-yellow-300/30" : "",
+        // Optional: give libero autosub a subtle teal accent too
+        isLiberoAutoSub ? "ring-4 ring-teal-300 shadow-lg shadow-teal-300/20" : "",
       ].join(" ")}
       onClick={handlePrimaryClick}
       role="button"
@@ -128,18 +147,35 @@ function CourtSlot({ teamId, slot }: { teamId: TeamId; slot: RotationSlot }) {
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") handlePrimaryClick();
       }}
-      title={isServer ? "Serving player" : playerId ? "Open scoring" : "Assign a player"}
+      title={
+        isServer
+          ? "Serving player"
+          : isLiberoAutoSub
+          ? "Libero auto-substitution active"
+          : playerId
+          ? "Open scoring"
+          : "Assign a player"
+      }
     >
       {/* Slot label */}
       <div className="flex items-center justify-between">
         <div className="text-[11px] text-black/60 font-bold">{slotLabel[slot]}</div>
 
         <div className="flex items-center gap-2">
+          {/* SERVE badge */}
           {isServer && (
             <div className="text-[10px] font-black px-2 py-[2px] rounded-full bg-yellow-300 text-black">
               SERVE
             </div>
           )}
+
+          {/* LIBERO badge */}
+          {isLiberoAutoSub && (
+            <div className="text-[10px] font-black px-2 py-[2px] rounded-full bg-teal-300 text-black">
+              LIBERO
+            </div>
+          )}
+
           <div className="text-[10px] font-extrabold text-black/50">{teamId}</div>
         </div>
       </div>
@@ -148,9 +184,18 @@ function CourtSlot({ teamId, slot }: { teamId: TeamId; slot: RotationSlot }) {
       <div className="mt-1 flex-1 flex flex-col justify-center">
         {player ? (
           <>
-            <div className="text-base font-extrabold text-black leading-tight">#{player.jerseyNumber}</div>
+            <div className="text-base font-extrabold text-black leading-tight">
+              #{player.jerseyNumber}
+            </div>
             <div className="text-sm font-semibold text-black truncate">{player.name}</div>
             <div className="text-[11px] text-black/70 font-bold">{player.position}</div>
+
+            {/* Auto-sub explanation line */}
+            {isLiberoAutoSub && replacedMB && (
+              <div className="text-[10px] text-black/60 font-semibold truncate">
+                Auto-sub for #{replacedMB.jerseyNumber} ({replacedMB.position})
+              </div>
+            )}
           </>
         ) : (
           <div className="text-sm font-bold text-black/60">Empty</div>
@@ -171,7 +216,9 @@ function CourtSlot({ teamId, slot }: { teamId: TeamId; slot: RotationSlot }) {
           }}
           className={[
             "w-full rounded-md px-2 py-1 text-xs font-extrabold",
-            playerId ? "bg-[var(--brand-sky)] text-white hover:opacity-90" : "bg-white border border-black/10 text-black hover:bg-gray-50",
+            playerId
+              ? "bg-[var(--brand-sky)] text-white hover:opacity-90"
+              : "bg-white border border-black/10 text-black hover:bg-gray-50",
           ].join(" ")}
         >
           {playerId ? "SCORE" : "ASSIGN"}
