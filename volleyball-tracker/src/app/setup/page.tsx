@@ -223,20 +223,32 @@ function LiberoAutoSubCard({
   title: string;
   teamId: TeamId;
   players: Player[];
-  config: { enabled: boolean; liberoId: string | null; mbId: string | null } | null;
-  setConfig: (
-    teamId: TeamId,
-    cfg: { enabled: boolean; liberoId: string | null; mbId: string | null }
-  ) => void;
+  config: { enabled: boolean; liberoId: string | null; mbIds: string[] } | null;
+  setConfig: (teamId: TeamId, cfg: Partial<{ enabled: boolean; liberoId: string | null; mbIds: string[] }>) => void;
 }) {
   const liberoOptions = players.filter(
-    (p) => p.position === "L" || p.position === ("LIBERO" as any)
+    (p) => String(p.position).toUpperCase() === "L" || String(p.position).toUpperCase() === "LIBERO"
   );
-  const mbOptions = players.filter((p) => p.position === "MB");
+  const mbOptions = players.filter((p) => String(p.position).toUpperCase() === "MB");
 
   const enabled = config?.enabled ?? false;
   const liberoId = config?.liberoId ?? null;
-  const mbId = config?.mbId ?? null;
+  const mbIds = Array.isArray(config?.mbIds) ? config!.mbIds : [];
+
+  // toggle MB selection (max 2)
+  function toggleMb(id: string) {
+    const current = Array.isArray(mbIds) ? mbIds : [];
+    const exists = current.includes(id);
+
+    let next: string[];
+    if (exists) {
+      next = current.filter((x) => x !== id);
+    } else {
+      next = [...current, id].slice(0, 2);
+    }
+
+    setConfig(teamId, { mbIds: next });
+  }
 
   return (
     <section className="bg-white rounded-xl shadow p-4">
@@ -247,30 +259,19 @@ function LiberoAutoSubCard({
           <input
             type="checkbox"
             checked={enabled}
-            onChange={(e) =>
-              setConfig(teamId, {
-                enabled: e.target.checked,
-                liberoId,
-                mbId,
-              })
-            }
+            onChange={(e) => setConfig(teamId, { enabled: e.target.checked })}
           />
           Enable
         </label>
       </div>
 
       <div className="mt-3 grid grid-cols-1 gap-3">
+        {/* Libero select */}
         <div>
           <div className="text-xs font-bold text-black/60 mb-1">Choose Libero</div>
           <select
             value={liberoId ?? ""}
-            onChange={(e) =>
-              setConfig(teamId, {
-                enabled,
-                liberoId: e.target.value || null,
-                mbId,
-              })
-            }
+            onChange={(e) => setConfig(teamId, { liberoId: e.target.value || null })}
             className="w-full border rounded-lg px-3 py-2 bg-white text-black"
           >
             <option value="">— Select Libero —</option>
@@ -280,6 +281,7 @@ function LiberoAutoSubCard({
               </option>
             ))}
           </select>
+
           {liberoOptions.length === 0 && (
             <div className="mt-1 text-xs text-amber-700 font-semibold">
               Add at least one player with position <b>L</b>.
@@ -287,42 +289,63 @@ function LiberoAutoSubCard({
           )}
         </div>
 
+        {/* MB pick (2) */}
         <div>
-          <div className="text-xs font-bold text-black/60 mb-1">Choose MB to be replaced</div>
-          <select
-            value={mbId ?? ""}
-            onChange={(e) =>
-              setConfig(teamId, {
-                enabled,
-                liberoId,
-                mbId: e.target.value || null,
-              })
-            }
-            className="w-full border rounded-lg px-3 py-2 bg-white text-black"
-          >
-            <option value="">— Select Middle Blocker —</option>
-            {mbOptions.map((p) => (
-              <option key={p.id} value={p.id}>
-                #{p.jerseyNumber} {p.name || "(No name)"} • {p.position}
-              </option>
-            ))}
-          </select>
-          {mbOptions.length === 0 && (
+          <div className="text-xs font-bold text-black/60 mb-2">Choose 2 Middle Blockers</div>
+
+          {mbOptions.length === 0 ? (
             <div className="mt-1 text-xs text-amber-700 font-semibold">
-              Add at least one player with position <b>MB</b>.
+              Add at least two players with position <b>MB</b>.
+            </div>
+          ) : (
+            <div className="grid gap-2">
+              {mbOptions.map((p) => {
+                const checked = mbIds.includes(p.id);
+                const disableUnchecked = !checked && mbIds.length >= 2;
+
+                return (
+                  <label
+                    key={p.id}
+                    className={[
+                      "flex items-center gap-2 rounded-lg border bg-white px-3 py-2",
+                      checked ? "border-teal-400" : "border-black/10",
+                      disableUnchecked ? "opacity-60" : "cursor-pointer",
+                    ].join(" ")}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      disabled={disableUnchecked}
+                      onChange={() => toggleMb(p.id)}
+                    />
+                    <div className="flex-1 text-sm font-semibold text-black truncate">
+                      #{p.jerseyNumber} {p.name || "(No name)"}
+                    </div>
+                    <div className="text-xs font-extrabold text-black/60">MB</div>
+                  </label>
+                );
+              })}
             </div>
           )}
+
+          <div className="mt-2 text-xs text-black/60 font-semibold">
+            Selected:{" "}
+            <b className={mbIds.length === 2 ? "text-black" : "text-amber-700"}>
+              {mbIds.length}/2
+            </b>
+          </div>
         </div>
 
         <div className="text-xs text-black/60 font-semibold leading-snug">
-          Auto-sub will swap your selected <b>Libero</b> in for the selected <b>MB</b> whenever
-          that MB is in the <b>back row (1/5/6)</b>, and swap the MB back when rotating to the{" "}
+          Auto-sub will swap your selected <b>Libero</b> in for whichever selected <b>MB</b> reaches
+          the <b>back row (1/5/6)</b>, and swap that MB back when rotating to the{" "}
           <b>front row (2/3/4)</b>.
         </div>
       </div>
     </section>
   );
 }
+
 
 /* ------------------ TEAM PANEL ------------------ */
 

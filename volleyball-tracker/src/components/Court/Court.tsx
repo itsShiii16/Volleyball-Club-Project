@@ -103,10 +103,11 @@ function CourtSlot({ teamId, slot }: { teamId: TeamId; slot: RotationSlot }) {
     liberoSwap.slot === slot &&
     liberoSwap.liberoId === playerId;
 
-  const replacedMB =
-    isLiberoAutoSub && liberoSwap.mbId
-      ? players.find((p) => p.id === liberoSwap.mbId) ?? null
-      : null;
+    const replacedMB =
+      isLiberoAutoSub && liberoSwap.replacedMbId
+        ? players.find((p) => p.id === liberoSwap.replacedMbId) ?? null
+        : null;
+
 
   const dropId = `${teamId}-${slot}`;
   const { setNodeRef, isOver } = useDroppable({
@@ -129,18 +130,18 @@ function CourtSlot({ teamId, slot }: { teamId: TeamId; slot: RotationSlot }) {
     openScoresheet(teamId, slot);
   }
 
-  return (
-    <div
-      ref={setNodeRef}
-      className={[
-        "w-40 h-28 rounded-md shadow transition px-3 py-2 flex flex-col text-left",
-        "bg-gray-100 cursor-pointer select-none",
-        isSelected ? "ring-4 ring-blue-400" : "hover:shadow-md",
-        isOver ? "ring-4 ring-emerald-400 bg-emerald-50" : "",
-        isServer ? "ring-4 ring-yellow-300 shadow-lg shadow-yellow-300/30" : "",
-        // Optional: give libero autosub a subtle teal accent too
-        isLiberoAutoSub ? "ring-4 ring-teal-300 shadow-lg shadow-teal-300/20" : "",
-      ].join(" ")}
+    return (
+      <div
+        ref={setNodeRef}
+        className={[
+          "w-40 h-28 rounded-md shadow transition px-3 py-2 flex flex-col text-left",
+          "bg-gray-100 cursor-pointer select-none",
+          "text-black", // ✅ FORCE readable text
+          isSelected ? "ring-4 ring-blue-400" : "hover:shadow-md",
+          isOver ? "ring-4 ring-emerald-400 bg-emerald-50" : "",
+          isServer ? "ring-4 ring-yellow-300 shadow-lg shadow-yellow-300/30" : "",
+          isLiberoAutoSub ? "ring-4 ring-teal-300 shadow-lg shadow-teal-300/20" : "",
+        ].join(" ")}
       onClick={handlePrimaryClick}
       role="button"
       tabIndex={0}
