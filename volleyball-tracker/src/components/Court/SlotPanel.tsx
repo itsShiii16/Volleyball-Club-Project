@@ -1,11 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMatchStore } from "@/store/matchStore";
 import { slotLabel } from "@/lib/volleyball";
 import type { RotationSlot, TeamId } from "@/lib/volleyball";
 
-const SWAP_SLOTS: RotationSlot[] = [4, 3, 2, 5, 6, 1];
+type SelectedMode = "default" | "bench";
 
 export default function SlotPanel() {
   const selected = useMatchStore((s) => s.selected);
@@ -13,28 +13,34 @@ export default function SlotPanel() {
 
   const players = useMatchStore((s) => s.players);
   const assign = useMatchStore((s) => s.assignPlayerToSlot);
+  const substituteInSlot = useMatchStore((s) => s.substituteInSlot);
   const clearSlot = useMatchStore((s) => s.clearSlot);
   const getOnCourtPlayerIds = useMatchStore((s) => s.getOnCourtPlayerIds);
 
   const courtA = useMatchStore((s) => s.courtA);
   const courtB = useMatchStore((s) => s.courtB);
 
+  const liberoConfigA = useMatchStore((s) => s.liberoConfigA);
+  const liberoConfigB = useMatchStore((s) => s.liberoConfigB);
+  const setLiberoConfig = useMatchStore((s) => s.setLiberoConfig);
+
+  const liberoSwapA = useMatchStore((s) => s.liberoSwapA);
+  const liberoSwapB = useMatchStore((s) => s.liberoSwapB);
+
   const [swapMode, setSwapMode] = useState(false);
-  const [swapPick, setSwapPick] = useState<{ teamId: TeamId; slot: RotationSlot } | null>(null);
+  const [swapPick, setSwapPick] = useState<RotationSlot | null>(null);
 
-  // Hard guard: once selected is null, render nothing
-  if (!selected) return null;
+  const benchRef = useRef<HTMLDivElement | null>(null);
 
-  const teamId = selected.teamId;
-  const slot = selected.slot;
+  const info = useMemo(() => {
+    if (!selected) return null;
 
-  const courtSlots = teamId === "A" ? courtA : courtB;
-  const playerId = courtSlots[slot];
-  const player = players.find((p) => p.id === playerId) || null;
+    const { teamId, slot } = selected;
+    const court = teamId === "A" ? courtA : courtB;
 
-  const titleTeam = teamId === "A" ? "Team A" : "Team B";
+    const playerId = court[slot] ?? null;
+    const player = players.find((p) => p.id === playerId) ?? null;
 
-  const { onCourt, bench } = useMemo(() => {
     const onCourtIds = new Set(getOnCourtPlayerIds(teamId));
     const roster = players.filter((p) => p.teamId === teamId);
 
@@ -46,195 +52,220 @@ export default function SlotPanel() {
       .filter((p) => !onCourtIds.has(p.id))
       .sort((a, b) => a.jerseyNumber - b.jerseyNumber);
 
-    return { onCourt, bench };
-  }, [players, teamId, getOnCourtPlayerIds]);
+    const cfg = teamId === "A" ? liberoConfigA : liberoConfigB;
+    const swap = teamId === "A" ? liberoSwapA : liberoSwapB;
 
-  function closePanel() {
+    const libero =
+      cfg.liberoId ? roster.find((p) => p.id === cfg.liberoId) ?? null : null;
+
+    const isAutoLiberoOnThisSlot =
+      !!playerId &&
+      swap.active &&
+      swap.slot === slot &&
+      swap.liberoId === playerId;
+
+    const replaced =
+      isAutoLiberoOnThisSlot && swap.replacedMbId
+        ? roster.find((p) => p.id === swap.replacedMbId) ?? null
+        : null;
+
+    return {
+      teamId,
+      slot,
+      player,
+      onCourt,
+      bench,
+      cfg,
+      swap,
+      libero,
+      isAutoLiberoOnThisSlot,
+      replaced,
+      court,
+      roster,
+    };
+  }, [
+    selected,
+    players,
+    courtA,
+    courtB,
+    getOnCourtPlayerIds,
+    liberoConfigA,
+    liberoConfigB,
+    liberoSwapA,
+    liberoSwapB,
+  ]);
+
+  useEffect(() => {
+    if (!selected) return;
+    const mode = (selected.mode ?? "default") as SelectedMode;
+    if (mode !== "bench") return;
+
+    setSwapMode(false);
+    setSwapPick(null);
+
+    requestAnimationFrame(() => {
+      benchRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }, [selected]);
+
+  if (!info) return null;
+
+  const {
+    teamId,
+    slot,
+    player,
+    onCourt,
+    bench,
+    cfg,
+    swap,
+    libero,
+    isAutoLiberoOnThisSlot,
+    replaced,
+    court,
+    roster,
+  } = info;
+
+  const titleTeam = teamId === "A" ? "Team A" : "Team B";
+
+  function closeAll() {
     clearSelection();
     setSwapMode(false);
     setSwapPick(null);
   }
 
-  function handleAssign(playerId: string) {
-    assign(teamId, slot, playerId);
-    closePanel();
+  function handleSub(playerId: string) {
+    substituteInSlot(teamId, slot, playerId);
+    closeAll();
   }
 
-  function handleSwapPick(picked: RotationSlot) {
+  function handleSwapPick(nextSlot: RotationSlot) {
     if (!swapPick) {
-      setSwapPick({ teamId, slot: picked });
+      setSwapPick(nextSlot);
       return;
     }
 
-    // swap within same team
-    const a = swapPick.slot;
-    const b = picked;
-
-    const currentCourt = teamId === "A" ? { ...courtA } : { ...courtB };
-
-    const temp = currentCourt[a];
-    currentCourt[a] = currentCourt[b];
-    currentCourt[b] = temp;
-
-    const apply = (s: RotationSlot, pid: string | null) => {
-      if (pid) assign(teamId, s, pid);
-      else clearSlot(teamId, s);
-    };
-
-    apply(a, currentCourt[a] ?? null);
-    apply(b, currentCourt[b] ?? null);
+    const temp = court[swapPick];
+    assign(teamId, swapPick, court[nextSlot] ?? "");
+    assign(teamId, nextSlot, temp ?? "");
 
     setSwapPick(null);
     setSwapMode(false);
   }
 
+  const liberos = roster.filter((p) => p.position === "L");
+  const mbs = roster.filter((p) => p.position === "MB");
+
+  function toggleMbId(mbId: string) {
+    const current = Array.isArray(cfg.mbIds) ? [...cfg.mbIds] : [];
+    const exists = current.includes(mbId);
+
+    let next = exists
+      ? current.filter((id) => id !== mbId)
+      : [...current, mbId];
+
+    next = Array.from(new Set(next)).slice(0, 2);
+
+    setLiberoConfig(teamId, { mbIds: next });
+  }
+
+  const selectedMbPlayers = (cfg.mbIds ?? [])
+    .map((id) => roster.find((p) => p.id === id))
+    .filter(Boolean);
+
+  const currentSwapSlotLabel =
+    swap.active && swap.slot ? slotLabel[swap.slot] : null;
+
   return (
     <div className="fixed inset-0 z-50">
-      {/* backdrop */}
-      <button className="absolute inset-0 bg-black/30" onClick={closePanel} aria-label="Close" />
+      <button className="absolute inset-0 bg-black/30" onClick={closeAll} />
 
-      {/* panel */}
       <div className="absolute right-0 top-0 h-full w-full max-w-md bg-white shadow-2xl p-5 flex flex-col">
-        <div className="flex items-start justify-between gap-4">
+        <div className="flex justify-between">
           <div>
-            <div className="text-xs font-semibold text-gray-500">
-              {titleTeam} • Slot {slotLabel[slot]}
+            <div className="text-xs font-semibold text-black/60">
+              {titleTeam} • Slot <b>{slotLabel[slot]}</b>
             </div>
-            <h2 className="text-xl font-bold text-gray-900 mt-1">
+            <h2 className="text-xl font-extrabold">
               {player ? `#${player.jerseyNumber} ${player.name}` : "Empty Slot"}
             </h2>
-            {player && (
-              <div className="text-sm text-gray-600 mt-1">
-                Position: <b>{player.position}</b>
-              </div>
-            )}
           </div>
-
-          <button
-            onClick={closePanel}
-            className="px-3 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-sm font-semibold"
-          >
-            Close
-          </button>
+          <button onClick={closeAll}>Close</button>
         </div>
 
-        {/* Actions */}
-        <div className="mt-4 flex flex-wrap gap-2">
-          <button
-            onClick={() => {
-              clearSlot(teamId, slot);
-              closePanel();
-            }}
-            className="px-4 py-2 rounded-lg bg-red-50 text-red-700 hover:bg-red-100 text-sm font-semibold"
-          >
-            Clear slot
-          </button>
-
-          <button
-            onClick={() => {
-              setSwapMode((v) => !v);
-              setSwapPick(null);
-            }}
-            className={[
-              "px-4 py-2 rounded-lg text-sm font-semibold",
-              swapMode ? "bg-blue-600 text-white" : "bg-white border shadow hover:shadow-md",
-            ].join(" ")}
-          >
-            {swapMode ? "Swap: Select slot…" : "Swap two slots"}
-          </button>
-        </div>
-
-        {/* Swap UI */}
-        {swapMode && (
-          <div className="mt-4 rounded-xl border p-3 bg-blue-50/40">
-            <div className="text-sm font-bold text-blue-900">Swap Mode</div>
-            <div className="text-xs text-blue-800 mt-1">
-              Tap any slot below to swap players.{" "}
-              {swapPick ? (
-                <>
-                  First pick: <b>{slotLabel[swapPick.slot]}</b>. Now choose the second slot.
-                </>
-              ) : (
-                <>Choose the first slot.</>
-              )}
-            </div>
-
-            <div className="mt-3 grid grid-cols-3 gap-2">
-              {SWAP_SLOTS.map((s) => {
-                const pid = courtSlots[s];
-                const p = players.find((x) => x.id === pid);
-
-                return (
-                  <button
-                    key={s}
-                    onClick={() => handleSwapPick(s)}
-                    className={[
-                      "rounded-lg border p-2 text-left",
-                      swapPick?.slot === s ? "border-blue-600 bg-white" : "bg-white hover:bg-gray-50",
-                    ].join(" ")}
-                  >
-                    <div className="text-[11px] font-bold text-gray-500">{slotLabel[s]}</div>
-                    <div className="text-xs font-semibold text-gray-900 truncate">
-                      {p ? `#${p.jerseyNumber} ${p.name}` : "Empty"}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
+        {isAutoLiberoOnThisSlot && replaced && (
+          <div className="mt-2 text-xs bg-teal-50 border p-2 rounded">
+            Libero replacing #{replaced.jerseyNumber} {replaced.name}
           </div>
         )}
 
-        {/* Bench + On-court */}
-        <div className="mt-5 border-t pt-4 overflow-auto">
-          <div className="text-sm font-bold text-gray-900">On-court</div>
-          <div className="mt-2 grid gap-2">
-            {onCourt.length === 0 ? (
-              <div className="text-xs text-gray-500">No players on court yet.</div>
-            ) : (
-              onCourt.map((p) => (
-                <div key={p.id} className="w-full rounded-xl border border-gray-200 p-3 bg-gray-50">
-                  <div className="flex items-center justify-between">
-                    <div className="font-semibold text-gray-900">
-                      #{p.jerseyNumber} {p.name}
-                    </div>
-                    <div className="text-xs font-bold text-gray-600">{p.position}</div>
-                  </div>
-                  <div className="text-xs text-gray-500 mt-1">Already on court</div>
-                </div>
-              ))
-            )}
+        {/* Libero automation */}
+        <div className="mt-4 border rounded p-3">
+          <button
+            onClick={() => setLiberoConfig(teamId, { enabled: !cfg.enabled })}
+          >
+            {cfg.enabled ? "Disable" : "Enable"} Libero Auto-Sub
+          </button>
+
+          <select
+            value={cfg.liberoId ?? ""}
+            onChange={(e) =>
+              setLiberoConfig(teamId, { liberoId: e.target.value || null })
+            }
+          >
+            <option value="">Select Libero</option>
+            {liberos.map((p) => (
+              <option key={p.id} value={p.id}>
+                #{p.jerseyNumber} {p.name}
+              </option>
+            ))}
+          </select>
+
+          <div className="mt-2">
+            {mbs.map((p) => (
+              <label key={p.id} className="block">
+                <input
+                  type="checkbox"
+                  checked={cfg.mbIds?.includes(p.id) ?? false}
+                  disabled={
+                    !(cfg.mbIds?.includes(p.id)) &&
+                    (cfg.mbIds?.length ?? 0) >= 2
+                  }
+                  onChange={() => toggleMbId(p.id)}
+                />
+                #{p.jerseyNumber} {p.name}
+              </label>
+            ))}
           </div>
 
-          <div className="mt-5">
-            <div className="text-sm font-bold text-gray-900">Bench</div>
-            <div className="text-xs text-gray-500 mt-1">
-              Tap a bench player to assign/substitute into this slot.
-            </div>
-
-            <div className="mt-2 grid gap-2">
-              {bench.length === 0 ? (
-                <div className="text-xs text-gray-500">No bench players available.</div>
-              ) : (
-                bench.map((p) => (
-                  <button
-                    key={p.id}
-                    onClick={() => handleAssign(p.id)}
-                    className="w-full text-left rounded-xl border border-gray-200 p-3 bg-white hover:bg-gray-50 transition"
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="font-semibold text-gray-900">
-                        #{p.jerseyNumber} {p.name}
-                      </div>
-                      <div className="text-xs font-bold text-gray-600">{p.position}</div>
-                    </div>
-                  </button>
-                ))
-              )}
-            </div>
+          <div className="text-xs mt-1">
+            Selected: {selectedMbPlayers.length}/2
           </div>
 
-          <div className="h-6" />
+          {swap.active && currentSwapSlotLabel && (
+            <div className="text-xs mt-1">
+              Active at slot {currentSwapSlotLabel}
+            </div>
+          )}
         </div>
+
+        {/* Bench */}
+        <div ref={benchRef} className="mt-4">
+          {bench.map((p) => (
+            <button key={p.id} onClick={() => handleSub(p.id)}>
+              #{p.jerseyNumber} {p.name}
+            </button>
+          ))}
+        </div>
+
+        {swapMode && (
+          <div className="grid grid-cols-3 gap-2 mt-4">
+            {[1, 2, 3, 4, 5, 6].map((n) => (
+              <button key={n} onClick={() => handleSwapPick(n as RotationSlot)}>
+                {slotLabel[n as RotationSlot]}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
