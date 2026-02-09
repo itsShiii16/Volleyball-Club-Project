@@ -818,7 +818,9 @@ getRankingsByPosition: () => Record<PositionGroup, RankedPlayer[]>;
 
   events: InternalEvent[];
   logEvent: (input: { teamId: TeamId; slot: RotationSlot; skill: Skill; outcome: Outcome }) => void;
+  
   undoLastEvent: () => void;
+  undoFromEvent: (eventId: string) => void; // ✅ NEW: Undo from specific event
 
   // ✅ Manual end-set button hook
   endSet: (winner?: TeamId) => void;
@@ -1553,6 +1555,42 @@ getRankingsByPosition: () => {
             };
           }),
 
+        // ✅ NEW: Undo from specific event
+        undoFromEvent: (eventId: string) =>
+          set((state) => {
+            const index = state.events.findIndex((e) => e.id === eventId);
+            if (index === -1) return state;
+
+            // The target event is at 'index'. 
+            // We want to revert to the state stored in its 'prev...' fields.
+            const target = state.events[index];
+
+            // Events newer than this (0 to index) will be discarded.
+            // Events older than this (index+1 to end) will be kept.
+            const remainingEvents = state.events.slice(index + 1);
+
+            return {
+              ...state,
+              scoreA: target.prevScoreA,
+              scoreB: target.prevScoreB,
+              servingTeam: target.prevServingTeam,
+
+              courtA: target.prevCourtA,
+              courtB: target.prevCourtB,
+
+              liberoSwapA: target.prevLiberoSwapA,
+              liberoSwapB: target.prevLiberoSwapB,
+
+              rallyCount: target.prevRallyCount,
+              rallyInProgress: target.prevRallyInProgress,
+              serviceRunTeam: target.prevServiceRunTeam,
+              serviceRunCount: target.prevServiceRunCount,
+
+              events: remainingEvents,
+              toast: makeToast("Reverted state to before selected event.", "info"),
+            };
+          }),
+
         resetCourt: (teamId) =>
           set((state) => {
             if (teamId === "A") return { ...state, courtA: emptyCourt(), liberoSwapA: defaultLiberoSwap() };
@@ -1636,7 +1674,10 @@ getRankingsByPosition: () => {
         serviceRunTeam: state.serviceRunTeam,
         serviceRunCount: state.serviceRunCount,
 
-        // ✅ persist set/match summary
+        // ✅ FIXED PERSISTENCE
+        liberoSwapA: state.liberoSwapA,
+        liberoSwapB: state.liberoSwapB,
+
         setRules: state.setRules,
         setNumber: state.setNumber,
         setsWonA: state.setsWonA,

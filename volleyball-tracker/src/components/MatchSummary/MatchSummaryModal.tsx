@@ -169,10 +169,11 @@ export default function MatchSummaryModal() {
         className="absolute inset-0 bg-black/50"
       />
 
-      {/* Modal */}
-      <div className="relative w-full max-w-5xl rounded-3xl bg-white text-black shadow-2xl border overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b">
+      {/* ✅ FIX 1: Added max-h-[95vh] and flex-col so the modal never exceeds the screen height */}
+      <div className="relative flex flex-col max-h-[95vh] w-full max-w-5xl rounded-3xl bg-white text-black shadow-2xl border overflow-hidden">
+        
+        {/* ✅ FIX 2: Header keeps shrink-0 so it never gets crushed by content */}
+        <div className="shrink-0 flex items-center justify-between px-6 py-4 border-b bg-white">
           <div>
             <div className="text-xs font-black tracking-wide text-gray-500">
               MATCH SUMMARY
@@ -193,186 +194,189 @@ export default function MatchSummaryModal() {
           </button>
         </div>
 
-        {/* Content */}
-        <div className="grid grid-cols-1 lg:grid-cols-[1.1fr_1fr] gap-4 p-6">
-          {/* Left: Sets list */}
-          <div className="rounded-2xl border bg-gray-50 p-4">
-            <div className="font-black text-sm mb-3">SETS</div>
-
-            {savedSets.length === 0 ? (
-              <div className="text-sm text-gray-600">
-                No saved sets yet. Finish a set to see it here.
-              </div>
-            ) : (
-              <div className="flex flex-col gap-2">
-                {savedSets
-                  .slice()
-                  .sort((a, b) => a.setNumber - b.setNumber)
-                  .map((s) => (
-                    <div
-                      key={s.id}
-                      className="rounded-xl bg-white border px-4 py-3 flex items-center justify-between"
-                    >
-                      <div className="flex flex-col">
-                        <div className="font-extrabold">
-                          Set {s.setNumber} • {s.pointsToWin}
-                        </div>
-                        <div className="text-xs text-gray-500">{fmtTime(s.ts)}</div>
-                      </div>
-
-                      <div className="text-right">
-                        <div className="font-black text-lg">
-                          {s.finalScoreA} - {s.finalScoreB}
-                        </div>
-                        <div className="text-xs font-bold text-gray-600">
-                          Winner: {s.winner}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-              </div>
-            )}
-          </div>
-
-          {/* Right: POG + Rankings + Position rankings */}
-          <div className="flex flex-col gap-4">
-            {/* POG */}
+        {/* ✅ FIX 3: Wrapper with flex-1 and overflow-y-auto gives us a scrollable middle section */}
+        <div className="flex-1 overflow-y-auto p-6 bg-white">
+          <div className="grid grid-cols-1 lg:grid-cols-[1.1fr_1fr] gap-4">
+            
+            {/* Left: Sets list */}
             <div className="rounded-2xl border bg-gray-50 p-4">
-              <div className="font-black text-sm mb-3">PLAYER OF THE GAME</div>
+              <div className="font-black text-sm mb-3">SETS</div>
 
-              {!summary.pog ? (
+              {savedSets.length === 0 ? (
                 <div className="text-sm text-gray-600">
-                  POG will appear after at least one saved set.
+                  No saved sets yet. Finish a set to see it here.
                 </div>
               ) : (
-                <div className="rounded-2xl bg-white border p-4 flex items-center justify-between">
-                  <div>
-                    <div className="text-xl font-black">
-                      #{summary.pog.jersey} {summary.pog.name}
-                    </div>
-                    <div className="text-sm text-gray-600">
-                      Team {summary.pog.teamId} • {String(summary.pog.position)}
-                    </div>
-                    <div className="text-xs text-gray-600 mt-1">
-                      Point credits: <b>{summary.pog.pointCredits}</b> • Errors:{" "}
-                      <b>{summary.pog.errorCredits}</b>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-3xl font-black">
-                      {summary.pog.pogPoints.toFixed(1)}
-                    </div>
-                    <div className="text-xs font-bold text-gray-600">POG points</div>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Overall rankings */}
-            <div className="rounded-2xl border bg-gray-50 p-4">
-              <div className="font-black text-sm mb-3">OVERALL RANKINGS</div>
-
-              {summary.ranked.length === 0 ? (
-                <div className="text-sm text-gray-600">
-                  Rankings appear once sets are saved.
-                </div>
-              ) : (
-                <div className="max-h-[240px] overflow-auto rounded-xl bg-white border">
-                  {summary.ranked.map((r, idx) => (
-                    <div
-                      key={r.playerId}
-                      className="px-4 py-3 border-b last:border-b-0 flex items-center justify-between"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 text-center font-black text-gray-500">
-                          {idx + 1}
-                        </div>
-                        <div>
+                <div className="flex flex-col gap-2">
+                  {savedSets
+                    .slice()
+                    .sort((a, b) => a.setNumber - b.setNumber)
+                    .map((s) => (
+                      <div
+                        key={s.id}
+                        className="rounded-xl bg-white border px-4 py-3 flex items-center justify-between"
+                      >
+                        <div className="flex flex-col">
                           <div className="font-extrabold">
-                            #{r.jersey} {r.name}
+                            Set {s.setNumber} • {s.pointsToWin}
                           </div>
-                          <div className="text-xs text-gray-600">
-                            Team {r.teamId} • {String(r.position)} • {r.bucket}
+                          <div className="text-xs text-gray-500">{fmtTime(s.ts)}</div>
+                        </div>
+
+                        <div className="text-right">
+                          <div className="font-black text-lg">
+                            {s.finalScoreA} - {s.finalScoreB}
                           </div>
-                          <div className="text-[11px] text-gray-500">
-                            Points won: <b>{r.pointCredits}</b> • Errors:{" "}
-                            <b>{r.errorCredits}</b>
+                          <div className="text-xs font-bold text-gray-600">
+                            Winner: {s.winner}
                           </div>
                         </div>
                       </div>
-
-                      <div className="text-right">
-                        <div className="font-black">{r.pogPoints.toFixed(1)}</div>
-                        <div className="text-[11px] text-gray-500">POG pts</div>
-                      </div>
-                    </div>
-                  ))}
+                    ))}
                 </div>
               )}
             </div>
 
-            {/* By-position rankings */}
-            <div className="rounded-2xl border bg-gray-50 p-4">
-              <div className="font-black text-sm mb-3">RANKINGS BY POSITION</div>
+            {/* Right: POG + Rankings + Position rankings */}
+            <div className="flex flex-col gap-4">
+              {/* POG */}
+              <div className="rounded-2xl border bg-gray-50 p-4">
+                <div className="font-black text-sm mb-3">PLAYER OF THE GAME</div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {(["OH", "OPP", "S", "L", "MB"] as PosBucket[]).map((pos) => {
-                  const list = summary.byPosition[pos] ?? [];
-                  return (
-                    <div key={pos} className="rounded-xl bg-white border p-3">
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="font-black text-sm">{pos}</div>
-                        <div className="text-xs font-bold text-gray-500">
-                          {list.length} player{list.length === 1 ? "" : "s"}
-                        </div>
+                {!summary.pog ? (
+                  <div className="text-sm text-gray-600">
+                    POG will appear after at least one saved set.
+                  </div>
+                ) : (
+                  <div className="rounded-2xl bg-white border p-4 flex items-center justify-between">
+                    <div>
+                      <div className="text-xl font-black">
+                        #{summary.pog.jersey} {summary.pog.name}
                       </div>
-
-                      {list.length === 0 ? (
-                        <div className="text-xs text-gray-600">
-                          No players tagged as {pos}.
-                        </div>
-                      ) : (
-                        <div className="flex flex-col gap-2">
-                          {list.slice(0, 3).map((r, i) => (
-                            <div
-                              key={r.playerId}
-                              className="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2"
-                            >
-                              <div className="flex items-center gap-2">
-                                <div className="w-6 text-center font-black text-gray-500">
-                                  {i + 1}
-                                </div>
-                                <div className="text-sm font-extrabold">
-                                  #{r.jersey} {r.name}
-                                </div>
-                              </div>
-                              <div className="text-right">
-                                <div className="text-sm font-black">
-                                  {r.pogPoints.toFixed(1)}
-                                </div>
-                                <div className="text-[11px] text-gray-500">
-                                  +{r.pointCredits} / -{r.errorCredits}
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
+                      <div className="text-sm text-gray-600">
+                        Team {summary.pog.teamId} • {String(summary.pog.position)}
+                      </div>
+                      <div className="text-xs text-gray-600 mt-1">
+                        Point credits: <b>{summary.pog.pointCredits}</b> • Errors:{" "}
+                        <b>{summary.pog.errorCredits}</b>
+                      </div>
                     </div>
-                  );
-                })}
+                    <div className="text-right">
+                      <div className="text-3xl font-black">
+                        {summary.pog.pogPoints.toFixed(1)}
+                      </div>
+                      <div className="text-xs font-bold text-gray-600">POG points</div>
+                    </div>
+                  </div>
+                )}
               </div>
 
-              <div className="text-[11px] text-gray-600 mt-3">
-                *Position buckets are inferred from player.position. If you want true OH vs OPP,
-                we should add explicit positions in <code>volleyball.ts</code> and in your roster setup.
+              {/* Overall rankings */}
+              <div className="rounded-2xl border bg-gray-50 p-4">
+                <div className="font-black text-sm mb-3">OVERALL RANKINGS</div>
+
+                {summary.ranked.length === 0 ? (
+                  <div className="text-sm text-gray-600">
+                    Rankings appear once sets are saved.
+                  </div>
+                ) : (
+                  <div className="max-h-[240px] overflow-auto rounded-xl bg-white border">
+                    {summary.ranked.map((r, idx) => (
+                      <div
+                        key={r.playerId}
+                        className="px-4 py-3 border-b last:border-b-0 flex items-center justify-between"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 text-center font-black text-gray-500">
+                            {idx + 1}
+                          </div>
+                          <div>
+                            <div className="font-extrabold">
+                              #{r.jersey} {r.name}
+                            </div>
+                            <div className="text-xs text-gray-600">
+                              Team {r.teamId} • {String(r.position)} • {r.bucket}
+                            </div>
+                            <div className="text-[11px] text-gray-500">
+                              Points won: <b>{r.pointCredits}</b> • Errors:{" "}
+                              <b>{r.errorCredits}</b>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="text-right">
+                          <div className="font-black">{r.pogPoints.toFixed(1)}</div>
+                          <div className="text-[11px] text-gray-500">POG pts</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* By-position rankings */}
+              <div className="rounded-2xl border bg-gray-50 p-4">
+                <div className="font-black text-sm mb-3">RANKINGS BY POSITION</div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {(["OH", "OPP", "S", "L", "MB"] as PosBucket[]).map((pos) => {
+                    const list = summary.byPosition[pos] ?? [];
+                    return (
+                      <div key={pos} className="rounded-xl bg-white border p-3">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="font-black text-sm">{pos}</div>
+                          <div className="text-xs font-bold text-gray-500">
+                            {list.length} player{list.length === 1 ? "" : "s"}
+                          </div>
+                        </div>
+
+                        {list.length === 0 ? (
+                          <div className="text-xs text-gray-600">
+                            No players tagged as {pos}.
+                          </div>
+                        ) : (
+                          <div className="flex flex-col gap-2">
+                            {list.slice(0, 3).map((r, i) => (
+                              <div
+                                key={r.playerId}
+                                className="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2"
+                              >
+                                <div className="flex items-center gap-2">
+                                  <div className="w-6 text-center font-black text-gray-500">
+                                    {i + 1}
+                                  </div>
+                                  <div className="text-sm font-extrabold">
+                                    #{r.jersey} {r.name}
+                                  </div>
+                                </div>
+                                <div className="text-right">
+                                  <div className="text-sm font-black">
+                                    {r.pogPoints.toFixed(1)}
+                                  </div>
+                                  <div className="text-[11px] text-gray-500">
+                                    +{r.pointCredits} / -{r.errorCredits}
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="text-[11px] text-gray-600 mt-3">
+                  *Position buckets are inferred from player.position. If you want true OH vs OPP,
+                  we should add explicit positions in <code>volleyball.ts</code> and in your roster setup.
+                </div>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Footer */}
-        <div className="px-6 py-4 border-t flex items-center justify-between">
+        {/* ✅ FIX 4: Footer keeps shrink-0 to stay docked at the bottom */}
+        <div className="shrink-0 px-6 py-4 border-t flex items-center justify-between bg-white">
           <div className="text-xs text-gray-600">
             This summary persists on refresh and clears only when you press{" "}
             <b>Reset Match</b>.
@@ -384,6 +388,7 @@ export default function MatchSummaryModal() {
             Done
           </button>
         </div>
+
       </div>
     </div>
   );
