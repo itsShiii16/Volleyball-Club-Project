@@ -501,6 +501,166 @@ function calcPlayerPogPoints(p: Player, counts: Record<StatKey, number>): number
   );
 }
 
+/** ---------- MATCH TALLY (INDIVIDUAL POINTS + RANKINGS) ---------- */
+
+export type PositionGroup = "OH" | "OPP" | "S" | "L" | "MB" | "OTHER";
+
+export type PlayerMatchStats = {
+  // "Real points" credited when the player's action directly wins a rally
+  // (Kill / Ace / Block point). This is the common volleyball definition of "points".
+  points: number;
+  kills: number;
+  aces: number;
+  blockPoints: number;
+
+  // Rally-ending mistakes that give the opponent a point.
+  errors: number;
+
+  // UPVVC / POG buckets (already used for POG points)
+  counts: Record<StatKey, number>;
+  pogPoints: number;
+};
+
+export type RankedPlayer = {
+  playerId: string;
+  name: string;
+  teamId: TeamId;
+  position: string;
+  positionGroup: PositionGroup;
+  stats: PlayerMatchStats;
+};
+
+const positionGroupFromPlayer = (p: Player | null | undefined): PositionGroup => {
+  const pos = normKey(p?.position ?? "");
+  if (pos === "OH" || pos.includes("OUTSIDE")) return "OH";
+  if (pos === "OPP" || pos.includes("OPPOSITE") || pos === "RS" || pos.includes("RIGHT_SIDE")) return "OPP";
+  if (pos === "S" || pos === "SETTER") return "S";
+  if (pos === "L" || pos === "LIBERO") return "L";
+  if (pos === "MB" || pos.includes("MIDDLE")) return "MB";
+  return "OTHER";
+};
+
+function emptyMatchStats(): PlayerMatchStats {
+  return {
+    points: 0,
+    kills: 0,
+    aces: 0,
+    blockPoints: 0,
+    errors: 0,
+    counts: emptyCounts(),
+    pogPoints: 0,
+  };
+}
+
+// Terminal point classifiers
+const WIN_OUTCOMES = new Set([
+  "SUCCESS",
+  "KILL",
+  "KILL_BLOCK",
+  "ACE",
+  "POINT",
+  "WIN",
+  "STUFF",
+  "BLOCK_POINT",
+]);
+
+const ERROR_OUTCOMES = new Set([
+  "ERROR",
+  "ATTACK_ERROR",
+  "SERVE_ERROR",
+  "SERVICE_ERROR",
+  "BLOCK_ERROR",
+  "RECEIVE_ERROR",
+  "DIG_ERROR",
+  "FAULT",
+  "OUT",
+  "NET",
+]);
+
+function isPointByPlayer(ev: InternalEvent): boolean {
+  if (!ev.pointWinner) return false;
+  // pointWinner is already computed based on (serve/spike/block) outcomes,
+  // so when pointWinner === teamId it's the player's terminal action.
+  return ev.pointWinner === ev.teamId;
+}
+
+function isErrorByPlayer(ev: InternalEvent): boolean {
+  if (!ev.pointWinner) return false;
+  if (ev.pointWinner !== opponentOf(ev.teamId)) return false;
+  const ok = ev.outcomeKey;
+  return (
+    ERROR_OUTCOMES.has(ok) ||
+    ok.includes("ERROR") ||
+    ok.includes("FAULT") ||
+    ok === "OUT" ||
+    ok === "NET"
+  );
+}
+
+function computeMatchStatsFromEvents(params: {
+  players: Player[];
+  events: InternalEvent[];
+}): Record<string, PlayerMatchStats> {
+  const { players, events } = params;
+  const out: Record<string, PlayerMatchStats> = {};
+
+  const ensure = (pid: string) => {
+    if (!out[pid]) out[pid] = emptyMatchStats();
+    return out[pid];
+  };
+
+  for (const ev of events) {
+    const pid = ev.playerId;
+    const stats = ensure(pid);
+
+    // POG buckets
+    const k = classifyForPog(ev.skillKey, ev.outcomeKey);
+    if (k) stats.counts[k] += 1;
+
+    // Individual "points"
+    if (isPointByPlayer(ev)) {
+      stats.points += 1;
+
+      const sk = ev.skillKey;
+      const ok = ev.outcomeKey;
+      const isWin =
+        WIN_OUTCOMES.has(ok) ||
+        ok.includes("KILL") ||
+        ok.includes("ACE") ||
+        ok.includes("BLOCK_POINT");
+
+      if (isWin) {
+        if (sk.includes("SERVE")) {
+          if (ok.includes("ACE")) stats.aces += 1;
+          // if you want "service winner" separate, add another counter
+        } else if (
+          sk.includes("SPIKE") ||
+          sk.includes("ATTACK") ||
+          sk === "HIT"
+        ) {
+          stats.kills += 1;
+        } else if (sk.includes("BLOCK")) {
+          stats.blockPoints += 1;
+        }
+      }
+    }
+
+    // Errors that cost a point
+    if (isErrorByPlayer(ev)) stats.errors += 1;
+  }
+
+  // compute pogPoints after counts are finalized
+  for (const [pid, stats] of Object.entries(out)) {
+    const p = players.find((x) => x.id === pid);
+    if (!p) continue;
+    stats.pogPoints = calcPlayerPogPoints(p, stats.counts);
+  }
+
+  return out;
+}
+
+/** ---------- END MATCH TALLY ---------- */
+
 /** ---------- END SET RULES ---------- */
 
 type SetRules = {
@@ -621,6 +781,12 @@ type MatchStore = {
   setsWonA: number;
   setsWonB: number;
   savedSets: SavedSet[];
+
+
+// ✅ Derived stats (no extra persistence needed)
+getPlayerMatchStats: (playerId: string) => PlayerMatchStats;
+getAllPlayerMatchStats: () => Record<string, PlayerMatchStats>;
+getRankingsByPosition: () => Record<PositionGroup, RankedPlayer[]>;
 
   // ✅ Match Summary modal (store-driven)
   matchSummaryOpen: boolean;
@@ -812,6 +978,57 @@ export const useMatchStore = create<MatchStore>()(
         setsWonB: 0,
         savedSets: [],
 
+
+// ✅ Derived stats (match-level): points + POG + rankings
+getAllPlayerMatchStats: () => {
+  const s = get();
+  const setEvents = (s.savedSets ?? []).flatMap((x) => x.events ?? []);
+  const liveEvents = s.events ?? [];
+  const allEvents = [...setEvents, ...liveEvents];
+  return computeMatchStatsFromEvents({ players: s.players, events: allEvents });
+},
+getPlayerMatchStats: (playerId) => {
+  const all = get().getAllPlayerMatchStats();
+  return all[playerId] ?? emptyMatchStats();
+},
+getRankingsByPosition: () => {
+  const s = get();
+  const all = s.getAllPlayerMatchStats();
+
+  const buckets: Record<PositionGroup, RankedPlayer[]> = {
+    OH: [],
+    OPP: [],
+    S: [],
+    L: [],
+    MB: [],
+    OTHER: [],
+  };
+
+  for (const p of s.players) {
+    const stats = all[p.id] ?? emptyMatchStats();
+    const positionGroup = positionGroupFromPlayer(p);
+    buckets[positionGroup].push({
+      playerId: p.id,
+      name: p.name,
+      teamId: p.teamId,
+      position: String(p.position ?? ""),
+      positionGroup,
+      stats,
+    });
+  }
+
+  const sortFn = (a: RankedPlayer, b: RankedPlayer) => {
+    if (b.stats.points !== a.stats.points) return b.stats.points - a.stats.points;
+    if (b.stats.pogPoints !== a.stats.pogPoints) return b.stats.pogPoints - a.stats.pogPoints;
+    return a.stats.errors - b.stats.errors;
+  };
+
+  (Object.keys(buckets) as PositionGroup[]).forEach((k) => {
+    buckets[k].sort(sortFn);
+  });
+
+  return buckets;
+},
         // ✅ Match Summary modal
         matchSummaryOpen: false,
         openMatchSummary: () => set({ matchSummaryOpen: true }),

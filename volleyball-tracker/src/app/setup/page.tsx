@@ -5,7 +5,26 @@ import { useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import type { Position, TeamId, Player } from "@/lib/volleyball";
 
-const POSITIONS: Position[] = ["WS", "MB", "S", "L"];
+// ✅ Updated positions per your new spec
+const POSITIONS: Position[] = ["OH", "OPP", "MB", "S", "L"];
+
+// ✅ allow legacy values on import
+const LEGACY_POSITIONS = new Set(["WS"]);
+const ALL_IMPORT_POSITIONS = new Set<string>([
+  ...POSITIONS,
+  ...Array.from(LEGACY_POSITIONS),
+]);
+
+function normalizeImportedPosition(pos: unknown): Position | null {
+  const p = String(pos ?? "").trim().toUpperCase();
+  if (!ALL_IMPORT_POSITIONS.has(p)) return null;
+
+  // Convert legacy "WS" -> "OH"
+  if (p === "WS") return "OH";
+
+  // Cast safe (since POSITIONS union includes only allowed)
+  return p as Position;
+}
 
 export default function SetupPage() {
   const router = useRouter();
@@ -17,7 +36,7 @@ export default function SetupPage() {
   const removePlayer = useMatchStore((s) => s.removePlayer);
   const setPlayers = useMatchStore((s) => s.setPlayers);
 
-  // ✅ Libero auto-sub config (from patched matchStore)
+  // ✅ Libero auto-sub config
   const liberoConfigA = useMatchStore((s) => s.liberoConfigA);
   const liberoConfigB = useMatchStore((s) => s.liberoConfigB);
   const setLiberoConfig = useMatchStore((s) => s.setLiberoConfig);
@@ -33,7 +52,7 @@ export default function SetupPage() {
       teamId,
       name: "",
       jerseyNumber: 0,
-      position: "WS",
+      position: "OH", // ✅ default is now OH
     });
   }
 
@@ -71,22 +90,47 @@ export default function SetupPage() {
           return;
         }
 
-        // Basic validation
-        const valid = parsed.every(
-          (p) =>
-            typeof p.id === "string" &&
-            (p.teamId === "A" || p.teamId === "B") &&
-            typeof p.name === "string" &&
-            typeof p.jerseyNumber === "number" &&
-            POSITIONS.includes(p.position)
-        );
+        const next: Player[] = [];
 
-        if (!valid) {
-          alert("Invalid player format in JSON.");
-          return;
+        for (const raw of parsed) {
+          const id = String(raw?.id ?? "");
+          const teamId = raw?.teamId;
+          const name = String(raw?.name ?? "");
+          const jerseyNumber = Number(raw?.jerseyNumber ?? NaN);
+          const pos = normalizeImportedPosition(raw?.position);
+
+          if (!id) {
+            alert("Invalid player: missing id.");
+            return;
+          }
+          if (teamId !== "A" && teamId !== "B") {
+            alert("Invalid player: teamId must be A or B.");
+            return;
+          }
+          if (!Number.isFinite(jerseyNumber)) {
+            alert("Invalid player: jerseyNumber must be a number.");
+            return;
+          }
+          if (!pos) {
+            alert(
+              `Invalid player position found: "${raw?.position}". Allowed: ${[
+                ...POSITIONS,
+                "WS (legacy)",
+              ].join(", ")}`
+            );
+            return;
+          }
+
+          next.push({
+            id,
+            teamId,
+            name,
+            jerseyNumber,
+            position: pos,
+          });
         }
 
-        setPlayers(parsed as Player[]);
+        setPlayers(next);
       } catch {
         alert("Failed to parse JSON file.");
       }
@@ -224,28 +268,25 @@ function LiberoAutoSubCard({
   teamId: TeamId;
   players: Player[];
   config: { enabled: boolean; liberoId: string | null; mbIds: string[] } | null;
-  setConfig: (teamId: TeamId, cfg: Partial<{ enabled: boolean; liberoId: string | null; mbIds: string[] }>) => void;
+  setConfig: (
+    teamId: TeamId,
+    cfg: Partial<{ enabled: boolean; liberoId: string | null; mbIds: string[] }>
+  ) => void;
 }) {
-  const liberoOptions = players.filter(
-    (p) => String(p.position).toUpperCase() === "L" || String(p.position).toUpperCase() === "LIBERO"
-  );
+  const liberoOptions = players.filter((p) => String(p.position).toUpperCase() === "L");
   const mbOptions = players.filter((p) => String(p.position).toUpperCase() === "MB");
 
   const enabled = config?.enabled ?? false;
   const liberoId = config?.liberoId ?? null;
   const mbIds = Array.isArray(config?.mbIds) ? config!.mbIds : [];
 
-  // toggle MB selection (max 2)
   function toggleMb(id: string) {
     const current = Array.isArray(mbIds) ? mbIds : [];
     const exists = current.includes(id);
 
     let next: string[];
-    if (exists) {
-      next = current.filter((x) => x !== id);
-    } else {
-      next = [...current, id].slice(0, 2);
-    }
+    if (exists) next = current.filter((x) => x !== id);
+    else next = [...current, id].slice(0, 2);
 
     setConfig(teamId, { mbIds: next });
   }
@@ -266,7 +307,6 @@ function LiberoAutoSubCard({
       </div>
 
       <div className="mt-3 grid grid-cols-1 gap-3">
-        {/* Libero select */}
         <div>
           <div className="text-xs font-bold text-black/60 mb-1">Choose Libero</div>
           <select
@@ -289,7 +329,6 @@ function LiberoAutoSubCard({
           )}
         </div>
 
-        {/* MB pick (2) */}
         <div>
           <div className="text-xs font-bold text-black/60 mb-2">Choose 2 Middle Blockers</div>
 
@@ -346,7 +385,6 @@ function LiberoAutoSubCard({
   );
 }
 
-
 /* ------------------ TEAM PANEL ------------------ */
 
 function TeamPanel({
@@ -399,9 +437,7 @@ function TeamPanel({
                 type="number"
                 value={p.jerseyNumber || ""}
                 placeholder="#"
-                onChange={(e) =>
-                  onUpdate(p.id, { jerseyNumber: Number(e.target.value) })
-                }
+                onChange={(e) => onUpdate(p.id, { jerseyNumber: Number(e.target.value) })}
                 className={[
                   "border rounded-lg px-3 py-2 bg-white text-black",
                   dup ? "border-red-500" : "",
@@ -410,9 +446,7 @@ function TeamPanel({
 
               <select
                 value={p.position}
-                onChange={(e) =>
-                  onUpdate(p.id, { position: e.target.value as Position })
-                }
+                onChange={(e) => onUpdate(p.id, { position: e.target.value as Position })}
                 className="border rounded-lg px-3 py-2 bg-white text-black"
               >
                 {POSITIONS.map((pos) => (

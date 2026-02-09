@@ -6,6 +6,30 @@ import { useMatchStore } from "@/store/matchStore";
 const fmtTime = (ts: number) =>
   new Date(ts).toLocaleString(undefined, { hour: "2-digit", minute: "2-digit" });
 
+const normKey = (v: unknown) =>
+  String(v ?? "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^\w\s-]/g, "")
+    .replace(/[\s-]+/g, "_");
+
+type PosBucket = "OH" | "OPP" | "S" | "L" | "MB" | "OTHER";
+
+/**
+ * Best-effort mapping (works even if your Position type is still "WS|MB|S|L").
+ * - WS => OH (default)
+ * - if you later add "OH" / "OPP", this will separate them
+ */
+function bucketFromPosition(posRaw: unknown): PosBucket {
+  const p = normKey(posRaw);
+  if (p === "MB" || p.includes("MIDDLE")) return "MB";
+  if (p === "S" || p.includes("SETTER")) return "S";
+  if (p === "L" || p.includes("LIBERO")) return "L";
+  if (p === "OPP" || p.includes("OPPOSITE") || p.includes("RIGHT_SIDE")) return "OPP";
+  if (p === "OH" || p.includes("OUTSIDE") || p === "WS" || p.includes("WING")) return "OH";
+  return "OTHER";
+}
+
 export default function MatchSummaryModal() {
   const open = useMatchStore((s) => s.matchSummaryOpen);
   const close = useMatchStore((s) => s.closeMatchSummary);
@@ -17,35 +41,121 @@ export default function MatchSummaryModal() {
     const setsWonA = savedSets.filter((s) => s.winner === "A").length;
     const setsWonB = savedSets.filter((s) => s.winner === "B").length;
 
-    // Aggregate pog points (if perPlayer exists)
-    const totals: Record<string, number> = {};
+    // Aggregate pog points + action counts (if perPlayer exists)
+    const totalsPog: Record<string, number> = {};
+    const totalsCounts: Record<string, Record<string, number>> = {};
+
+    // Individual "point credits" (kill/ace/block point/etc) + "errors conceded"
+    // Uses InternalEvent.pointWinner + teamId (best-effort based on your current logger).
+    const pointsWon: Record<string, number> = {};
+    const pointsLost: Record<string, number> = {};
+
     for (const set of savedSets) {
-      if (!set.perPlayer) continue;
-      for (const [pid, data] of Object.entries(set.perPlayer)) {
-        totals[pid] = (totals[pid] ?? 0) + (data.pogPoints ?? 0);
+      // 1) POG + counts
+      if (set.perPlayer) {
+        for (const [pid, data] of Object.entries(set.perPlayer)) {
+          totalsPog[pid] = (totalsPog[pid] ?? 0) + Number(data?.pogPoints ?? 0);
+
+          const counts = (data as any)?.counts ?? {};
+          if (!totalsCounts[pid]) totalsCounts[pid] = {};
+          for (const [k, v] of Object.entries(counts)) {
+            totalsCounts[pid][k] = (totalsCounts[pid][k] ?? 0) + Number(v ?? 0);
+          }
+        }
+      }
+
+      // 2) Point credits (from events)
+      const events = Array.isArray(set.events) ? set.events : [];
+      for (const ev of events as any[]) {
+        const pid = String(ev?.playerId ?? "");
+        if (!pid) continue;
+
+        const pw = ev?.pointWinner as "A" | "B" | undefined;
+        const teamId = ev?.teamId as "A" | "B" | undefined;
+        if (!pw || (pw !== "A" && pw !== "B")) continue;
+
+        // If pointWinner === teamId, credit as "won point" for that player
+        if (teamId && pw === teamId) {
+          pointsWon[pid] = (pointsWon[pid] ?? 0) + 1;
+        } else if (teamId && pw !== teamId) {
+          // Otherwise, treat as "error conceded"
+          pointsLost[pid] = (pointsLost[pid] ?? 0) + 1;
+        }
       }
     }
 
-    const ranked = Object.entries(totals)
+    const ranked = Object.entries(totalsPog)
       .map(([playerId, points]) => {
         const p = players.find((x) => x.id === playerId);
+        const bucket = bucketFromPosition(p?.position);
         return {
           playerId,
-          points,
+          pogPoints: points,
           teamId: p?.teamId ?? "?",
           name: p?.name ?? "Unknown",
           jersey: p?.jerseyNumber ?? "",
-          position: p?.position ?? "",
+          position: (p?.position as any) ?? "",
+          bucket,
+          // extra tallies:
+          pointCredits: pointsWon[playerId] ?? 0,
+          errorCredits: pointsLost[playerId] ?? 0,
+          counts: totalsCounts[playerId] ?? {},
         };
       })
-      .sort((a, b) => b.points - a.points);
+      .sort((a, b) => b.pogPoints - a.pogPoints);
 
-    const pog = ranked[0] ?? null;
+    // In case no perPlayer exists yet, still show ranking based on point credits if we have it.
+    const rankedFallback =
+      ranked.length > 0
+        ? ranked
+        : Object.keys({ ...pointsWon, ...pointsLost })
+            .map((playerId) => {
+              const p = players.find((x) => x.id === playerId);
+              const bucket = bucketFromPosition(p?.position);
+              return {
+                playerId,
+                pogPoints: 0,
+                teamId: p?.teamId ?? "?",
+                name: p?.name ?? "Unknown",
+                jersey: p?.jerseyNumber ?? "",
+                position: (p?.position as any) ?? "",
+                bucket,
+                pointCredits: pointsWon[playerId] ?? 0,
+                errorCredits: pointsLost[playerId] ?? 0,
+                counts: totalsCounts[playerId] ?? {},
+              };
+            })
+            .sort((a, b) => b.pointCredits - a.pointCredits);
 
-    const teamA = ranked.filter((r) => r.teamId === "A");
-    const teamB = ranked.filter((r) => r.teamId === "B");
+    const finalRanked = rankedFallback;
 
-    return { setsWonA, setsWonB, ranked, teamA, teamB, pog };
+    const pog = finalRanked[0] ?? null;
+
+    const byPosition: Record<PosBucket, typeof finalRanked> = {
+      OH: [],
+      OPP: [],
+      S: [],
+      L: [],
+      MB: [],
+      OTHER: [],
+    };
+    for (const r of finalRanked) byPosition[r.bucket].push(r);
+
+    // Sort each position bucket by pog points, then point credits as tie-breaker
+    (Object.keys(byPosition) as PosBucket[]).forEach((k) => {
+      byPosition[k] = byPosition[k].slice().sort((a, b) => {
+        if (b.pogPoints !== a.pogPoints) return b.pogPoints - a.pogPoints;
+        return b.pointCredits - a.pointCredits;
+      });
+    });
+
+    return {
+      setsWonA,
+      setsWonB,
+      ranked: finalRanked,
+      pog,
+      byPosition,
+    };
   }, [savedSets, players]);
 
   if (!open) return null;
@@ -60,7 +170,7 @@ export default function MatchSummaryModal() {
       />
 
       {/* Modal */}
-      <div className="relative w-full max-w-4xl rounded-3xl bg-white text-black shadow-2xl border overflow-hidden">
+      <div className="relative w-full max-w-5xl rounded-3xl bg-white text-black shadow-2xl border overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b">
           <div>
@@ -84,7 +194,7 @@ export default function MatchSummaryModal() {
         </div>
 
         {/* Content */}
-        <div className="grid grid-cols-1 lg:grid-cols-[1.2fr_1fr] gap-4 p-6">
+        <div className="grid grid-cols-1 lg:grid-cols-[1.1fr_1fr] gap-4 p-6">
           {/* Left: Sets list */}
           <div className="rounded-2xl border bg-gray-50 p-4">
             <div className="font-black text-sm mb-3">SETS</div>
@@ -107,9 +217,7 @@ export default function MatchSummaryModal() {
                         <div className="font-extrabold">
                           Set {s.setNumber} • {s.pointsToWin}
                         </div>
-                        <div className="text-xs text-gray-500">
-                          {fmtTime(s.ts)}
-                        </div>
+                        <div className="text-xs text-gray-500">{fmtTime(s.ts)}</div>
                       </div>
 
                       <div className="text-right">
@@ -126,14 +234,15 @@ export default function MatchSummaryModal() {
             )}
           </div>
 
-          {/* Right: POG + Rankings */}
+          {/* Right: POG + Rankings + Position rankings */}
           <div className="flex flex-col gap-4">
+            {/* POG */}
             <div className="rounded-2xl border bg-gray-50 p-4">
               <div className="font-black text-sm mb-3">PLAYER OF THE GAME</div>
 
               {!summary.pog ? (
                 <div className="text-sm text-gray-600">
-                  POG will appear after at least one saved set (with per-player points).
+                  POG will appear after at least one saved set.
                 </div>
               ) : (
                 <div className="rounded-2xl bg-white border p-4 flex items-center justify-between">
@@ -142,30 +251,33 @@ export default function MatchSummaryModal() {
                       #{summary.pog.jersey} {summary.pog.name}
                     </div>
                     <div className="text-sm text-gray-600">
-                      Team {summary.pog.teamId} • {summary.pog.position}
+                      Team {summary.pog.teamId} • {String(summary.pog.position)}
+                    </div>
+                    <div className="text-xs text-gray-600 mt-1">
+                      Point credits: <b>{summary.pog.pointCredits}</b> • Errors:{" "}
+                      <b>{summary.pog.errorCredits}</b>
                     </div>
                   </div>
                   <div className="text-right">
                     <div className="text-3xl font-black">
-                      {summary.pog.points.toFixed(1)}
+                      {summary.pog.pogPoints.toFixed(1)}
                     </div>
-                    <div className="text-xs font-bold text-gray-600">
-                      points
-                    </div>
+                    <div className="text-xs font-bold text-gray-600">POG points</div>
                   </div>
                 </div>
               )}
             </div>
 
+            {/* Overall rankings */}
             <div className="rounded-2xl border bg-gray-50 p-4">
-              <div className="font-black text-sm mb-3">RANKINGS</div>
+              <div className="font-black text-sm mb-3">OVERALL RANKINGS</div>
 
               {summary.ranked.length === 0 ? (
                 <div className="text-sm text-gray-600">
-                  Rankings appear once per-player points are computed in saved sets.
+                  Rankings appear once sets are saved.
                 </div>
               ) : (
-                <div className="max-h-[320px] overflow-auto rounded-xl bg-white border">
+                <div className="max-h-[240px] overflow-auto rounded-xl bg-white border">
                   {summary.ranked.map((r, idx) => (
                     <div
                       key={r.playerId}
@@ -180,18 +292,81 @@ export default function MatchSummaryModal() {
                             #{r.jersey} {r.name}
                           </div>
                           <div className="text-xs text-gray-600">
-                            Team {r.teamId} • {r.position}
+                            Team {r.teamId} • {String(r.position)} • {r.bucket}
+                          </div>
+                          <div className="text-[11px] text-gray-500">
+                            Points won: <b>{r.pointCredits}</b> • Errors:{" "}
+                            <b>{r.errorCredits}</b>
                           </div>
                         </div>
                       </div>
 
-                      <div className="font-black">
-                        {r.points.toFixed(1)}
+                      <div className="text-right">
+                        <div className="font-black">{r.pogPoints.toFixed(1)}</div>
+                        <div className="text-[11px] text-gray-500">POG pts</div>
                       </div>
                     </div>
                   ))}
                 </div>
               )}
+            </div>
+
+            {/* By-position rankings */}
+            <div className="rounded-2xl border bg-gray-50 p-4">
+              <div className="font-black text-sm mb-3">RANKINGS BY POSITION</div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {(["OH", "OPP", "S", "L", "MB"] as PosBucket[]).map((pos) => {
+                  const list = summary.byPosition[pos] ?? [];
+                  return (
+                    <div key={pos} className="rounded-xl bg-white border p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="font-black text-sm">{pos}</div>
+                        <div className="text-xs font-bold text-gray-500">
+                          {list.length} player{list.length === 1 ? "" : "s"}
+                        </div>
+                      </div>
+
+                      {list.length === 0 ? (
+                        <div className="text-xs text-gray-600">
+                          No players tagged as {pos}.
+                        </div>
+                      ) : (
+                        <div className="flex flex-col gap-2">
+                          {list.slice(0, 3).map((r, i) => (
+                            <div
+                              key={r.playerId}
+                              className="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2"
+                            >
+                              <div className="flex items-center gap-2">
+                                <div className="w-6 text-center font-black text-gray-500">
+                                  {i + 1}
+                                </div>
+                                <div className="text-sm font-extrabold">
+                                  #{r.jersey} {r.name}
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <div className="text-sm font-black">
+                                  {r.pogPoints.toFixed(1)}
+                                </div>
+                                <div className="text-[11px] text-gray-500">
+                                  +{r.pointCredits} / -{r.errorCredits}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="text-[11px] text-gray-600 mt-3">
+                *Position buckets are inferred from player.position. If you want true OH vs OPP,
+                we should add explicit positions in <code>volleyball.ts</code> and in your roster setup.
+              </div>
             </div>
           </div>
         </div>
@@ -199,7 +374,8 @@ export default function MatchSummaryModal() {
         {/* Footer */}
         <div className="px-6 py-4 border-t flex items-center justify-between">
           <div className="text-xs text-gray-600">
-            This summary persists on refresh and clears only when you press <b>Reset Match</b>.
+            This summary persists on refresh and clears only when you press{" "}
+            <b>Reset Match</b>.
           </div>
           <button
             onClick={close}

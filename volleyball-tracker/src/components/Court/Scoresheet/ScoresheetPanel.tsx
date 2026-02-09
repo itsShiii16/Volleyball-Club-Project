@@ -18,54 +18,110 @@ function isLiberoPosition(pos: string) {
   return p === "L" || p === "LIBERO";
 }
 
-function buttonsForContext(pos: string, opts: { frontRow: boolean; libero: boolean }): Btn[] {
+function isSetterPosition(pos: string) {
+  const p = normPos(pos);
+  return p === "S" || p === "SETTER";
+}
+
+function isMiddlePosition(pos: string) {
+  const p = normPos(pos);
+  return p === "MB" || p === "MIDDLE" || p === "MIDDLE_BLOCKER";
+}
+
+function isWingPosition(pos: string) {
+  const p = normPos(pos);
+  return (
+    p === "OH" ||
+    p === "OPP" ||
+    p === "WS" || // legacy
+    p === "OUTSIDE" ||
+    p === "OUTSIDE_HITTER" ||
+    p === "OPPOSITE" ||
+    p === "RIGHT_SIDE" ||
+    p === "RS"
+  );
+}
+
+/**
+ * Buttons are aligned with your patched volleyball.ts outcomes:
+ * - Point wins: ACE / KILL / BLOCK_POINT
+ * - Errors: ERROR (or FAULT/OUT/NET if you later add)
+ * - "PERFECT" kept for receive/set quality
+ */
+function buttonsForContext(
+  pos: string,
+  opts: { frontRow: boolean; libero: boolean }
+): Btn[] {
   const p = normPos(pos);
 
-  // Base sets
-  const commonDefense: Btn[] = [
+  // Defense / passing
+  const defense: Btn[] = [
     { skill: "RECEIVE", outcome: "PERFECT", label: "Receive • Perfect" },
-    { skill: "DIG", outcome: "SUCCESS", label: "Dig • Success" },
+    { skill: "RECEIVE", outcome: "SUCCESS", label: "Receive • Success" },
     { skill: "RECEIVE", outcome: "ERROR", label: "Receive • Error" },
+
+    { skill: "DIG", outcome: "SUCCESS", label: "Dig • Success" },
+    { skill: "DIG", outcome: "ERROR", label: "Dig • Error" },
   ];
 
+  // Setting (for setters, but also optionally for others)
+  const setting: Btn[] = [
+    { skill: "SET", outcome: "PERFECT", label: "Set • Perfect" },
+    { skill: "SET", outcome: "SUCCESS", label: "Set • Success" },
+    { skill: "SET", outcome: "ERROR", label: "Set • Error" },
+  ];
+
+  // Attacking / serving (point attribution comes from store’s logic)
   const attackServe: Btn[] = [
-    { skill: "SPIKE", outcome: "SUCCESS", label: "Spike • Kill" },
-    { skill: "SPIKE", outcome: "ERROR", label: "Spike • Error" },
-    { skill: "SERVE", outcome: "SUCCESS", label: "Serve • Ace" },
+    { skill: "SPIKE", outcome: "KILL", label: "Attack • Kill" },
+    { skill: "SPIKE", outcome: "ERROR", label: "Attack • Error" },
+
+    { skill: "SERVE", outcome: "ACE", label: "Serve • Ace" },
     { skill: "SERVE", outcome: "ERROR", label: "Serve • Error" },
   ];
 
-  const blockBtns: Btn[] = [
-    { skill: "BLOCK", outcome: "SUCCESS", label: "Block • Kill block" },
+  // Blocking (front-row only — store also blocks back-row block attempts)
+  const block: Btn[] = [
+    { skill: "BLOCK", outcome: "BLOCK_POINT", label: "Block • Point" },
     { skill: "BLOCK", outcome: "ERROR", label: "Block • Error" },
   ];
 
-  // Libero: ONLY defense
+  // Libero: defense + (optional) set
   if (opts.libero) {
-    return commonDefense;
+    // many liberos set in-system; keep it available
+    return [...defense, ...setting];
   }
 
-  // Setter / WS / MB share similar button groups in your current setup
-  if (p === "S" || p === "WS" || p === "MB") {
-    const setBtn: Btn[] =
-      p === "S"
-        ? [{ skill: "SET", outcome: "PERFECT", label: "Set • Perfect" }]
-        : [];
-
+  // Setter: emphasize sets, but still allow attack/serve and block when front
+  if (isSetterPosition(p)) {
     return [
-      ...setBtn,
-      ...commonDefense,
-      ...(opts.frontRow ? blockBtns : []), // ✅ only show block in front row
-      ...attackServe, // ✅ backrow can still spike + serve (as you said)
+      ...setting,
+      ...defense,
+      ...(opts.frontRow ? block : []),
+      ...attackServe,
     ];
   }
 
-  // Default (unknown position): show safe set
-  return [
-    ...commonDefense,
-    ...(opts.frontRow ? blockBtns : []),
-    ...attackServe,
-  ];
+  // Middle: emphasize block + quick attack, still allow serve/defense
+  if (isMiddlePosition(p)) {
+    return [
+      ...defense,
+      ...(opts.frontRow ? block : []),
+      ...attackServe,
+    ];
+  }
+
+  // Wings (OH/OPP/legacy WS): defense + attack + serve + block when front
+  if (isWingPosition(p)) {
+    return [
+      ...defense,
+      ...(opts.frontRow ? block : []),
+      ...attackServe,
+    ];
+  }
+
+  // Default: safe set
+  return [...defense, ...setting, ...(opts.frontRow ? block : []), ...attackServe];
 }
 
 export default function ScoresheetPanel() {
@@ -103,11 +159,18 @@ export default function ScoresheetPanel() {
   if (!info) {
     return (
       <div className="fixed inset-0 z-50">
-        <button className="absolute inset-0 bg-black/30" onClick={close} aria-label="Close" />
+        <button
+          className="absolute inset-0 bg-black/30"
+          onClick={close}
+          aria-label="Close"
+        />
         <div className="absolute right-0 top-0 h-full w-full max-w-md bg-white shadow-2xl p-5">
           <div className="flex items-center justify-between">
             <div className="font-bold">Scoresheet</div>
-            <button onClick={close} className="px-3 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-sm font-semibold">
+            <button
+              onClick={close}
+              className="px-3 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-sm font-semibold"
+            >
               Close
             </button>
           </div>
@@ -119,7 +182,11 @@ export default function ScoresheetPanel() {
 
   return (
     <div className="fixed inset-0 z-50">
-      <button className="absolute inset-0 bg-black/30" onClick={close} aria-label="Close" />
+      <button
+        className="absolute inset-0 bg-black/30"
+        onClick={close}
+        aria-label="Close"
+      />
 
       <div className="absolute right-0 top-0 h-full w-full max-w-md bg-white shadow-2xl p-5 flex flex-col">
         <div className="flex items-start justify-between gap-4">
@@ -127,7 +194,9 @@ export default function ScoresheetPanel() {
             <div className="text-xs font-semibold text-gray-500">
               {info.teamId === "A" ? "Team A" : "Team B"} • Slot {slotLabel[info.slot]}
               {" • "}
-              <span className="font-bold">{info.frontRow ? "Front row" : "Back row"}</span>
+              <span className="font-bold">
+                {info.frontRow ? "Front row" : "Back row"}
+              </span>
               {info.libero ? <span className="font-bold"> • Libero</span> : null}
             </div>
 
@@ -141,10 +210,16 @@ export default function ScoresheetPanel() {
           </div>
 
           <div className="flex gap-2">
-            <button onClick={undo} className="px-3 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-sm font-semibold">
+            <button
+              onClick={undo}
+              className="px-3 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-sm font-semibold"
+            >
               Undo
             </button>
-            <button onClick={close} className="px-3 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-sm font-semibold">
+            <button
+              onClick={close}
+              className="px-3 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-sm font-semibold"
+            >
               Close
             </button>
           </div>
@@ -154,10 +229,20 @@ export default function ScoresheetPanel() {
           {info.btns.map((b, idx) => (
             <button
               key={idx}
-              onClick={() => logEvent({ teamId: info.teamId, slot: info.slot, skill: b.skill, outcome: b.outcome })}
+              onClick={() =>
+                logEvent({
+                  teamId: info.teamId,
+                  slot: info.slot,
+                  skill: b.skill,
+                  outcome: b.outcome,
+                })
+              }
               className="w-full rounded-xl border border-gray-200 p-3 text-left bg-white hover:bg-gray-50 transition"
             >
               <div className="font-semibold text-gray-900">{b.label}</div>
+              <div className="text-[11px] text-gray-500 mt-1">
+                Logs: {b.skill} • {b.outcome}
+              </div>
             </button>
           ))}
         </div>
@@ -169,9 +254,17 @@ export default function ScoresheetPanel() {
               <div className="text-xs text-gray-500">No events yet.</div>
             ) : (
               info.playerEvents.slice(0, 12).map((e) => (
-                <div key={e.id} className="rounded-lg bg-gray-50 border border-gray-200 p-2 text-xs">
+                <div
+                  key={e.id}
+                  className="rounded-lg bg-gray-50 border border-gray-200 p-2 text-xs"
+                >
                   <div className="font-semibold text-gray-800">
-                    {e.skill} • {e.outcome}
+                    {String(e.skill)} • {String(e.outcome)}
+                    {e.pointWinner ? (
+                      <span className="ml-2 font-black text-gray-600">
+                        • Point: {e.pointWinner}
+                      </span>
+                    ) : null}
                   </div>
                 </div>
               ))
