@@ -1,0 +1,19 @@
+[33m3b6f9d0[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mdev[m[33m)[m HEAD@{0}: reset: moving to HEAD~2
+[33m29906c2[m[33m ([m[1;31morigin/dev[m[33m)[m HEAD@{1}: checkout: moving from main to dev
+[33m32331e8[m[33m ([m[1;32mmain[m[33m)[m HEAD@{2}: checkout: moving from dev to main
+[33m29906c2[m[33m ([m[1;31morigin/dev[m[33m)[m HEAD@{3}: checkout: moving from main to dev
+[33m32331e8[m[33m ([m[1;32mmain[m[33m)[m HEAD@{4}: checkout: moving from dev to main
+[33m29906c2[m[33m ([m[1;31morigin/dev[m[33m)[m HEAD@{5}: reset: moving to HEAD
+[33m29906c2[m[33m ([m[1;31morigin/dev[m[33m)[m HEAD@{6}: checkout: moving from main to dev
+[33m32331e8[m[33m ([m[1;32mmain[m[33m)[m HEAD@{7}: checkout: moving from dev to main
+[33m29906c2[m[33m ([m[1;31morigin/dev[m[33m)[m HEAD@{8}: commit: Libero auto-sub fix
+[33m8ded507[m HEAD@{9}: commit: Code: Add match summary
+[33m3b6f9d0[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mdev[m[33m)[m HEAD@{10}: commit: code: Fix libero and middle auto-sub
+[33m6559cc7[m HEAD@{11}: commit: Code: Automatic Libero - Middle substitution
+[33mad7be90[m HEAD@{12}: commit: Fix Court UI/UX
+[33m0ce59be[m HEAD@{13}: commit: Implement user first features
+[33m0690ca1[m HEAD@{14}: commit: Substitution function ready - drag to square.
+[33mbdf6396[m HEAD@{15}: commit: Add scoring logic, mirrored rotation, and instant bench substitution UX
+[33m3a85fe1[m HEAD@{16}: commit: feat: court UI, roster setup, reset match, and core match flow
+[33m32331e8[m[33m ([m[1;32mmain[m[33m)[m HEAD@{17}: checkout: moving from main to dev
+[33m32331e8[m[33m ([m[1;32mmain[m[33m)[m HEAD@{18}: clone: from https://github.com/itsShiii16/Volleyball-Club-Project.git
