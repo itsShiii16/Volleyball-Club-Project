@@ -4,6 +4,8 @@ import Court from "@/components/Court/Court";
 import SlotPanel from "@/components/Court/SlotPanel";
 import ScoresheetPanel from "@/components/Court/Scoresheet/ScoresheetPanel";
 import BenchRail from "@/components/Court/Bench/BenchRail";
+import MatchSummaryModal from "@/components/MatchSummary/MatchSummaryModal";
+
 
 import { useMemo, useState, useCallback, useEffect, useRef } from "react";
 import { useMatchStore } from "@/store/matchStore";
@@ -31,6 +33,7 @@ export default function Home() {
   const resetCourt = useMatchStore((s) => s.resetCourt);
   const resetMatch = useMatchStore((s) => s.resetMatch);
   const undoLastEvent = useMatchStore((s) => s.undoLastEvent);
+  const canUndo = useMatchStore((s) => (s.events?.length ?? 0) > 0);
 
   const rotateTeam = useMatchStore((s) => s.rotateTeam);
 
@@ -44,7 +47,11 @@ export default function Home() {
   const scoreA = useMatchStore((s) => s.scoreA);
   const scoreB = useMatchStore((s) => s.scoreB);
 
-  // Toast from store (added in patched matchStore)
+  // ✅ Match Summary (store-driven)
+  const openMatchSummary = useMatchStore((s) => s.openMatchSummary);
+  const savedSetsCount = useMatchStore((s) => (s.savedSets?.length ?? 0));
+
+  // Toast from store
   const toast = useMatchStore((s) => s.toast);
   const clearToast = useMatchStore((s) => s.clearToast);
 
@@ -56,8 +63,9 @@ export default function Home() {
   const [teamNameA, setTeamNameA] = useState("TEAM A NAME");
   const [teamNameB, setTeamNameB] = useState("TEAM B NAME");
 
-  const [setsA, setSetsA] = useState(1);
-  const [setsB, setSetsB] = useState(2);
+  // ✅ FIX: reset default should be 0-0
+  const [setsA, setSetsA] = useState(0);
+  const [setsB, setSetsB] = useState(0);
 
   const [timeoutsA, setTimeoutsA] = useState([false, false, false]);
   const [timeoutsB, setTimeoutsB] = useState([false, false, false]);
@@ -79,7 +87,7 @@ export default function Home() {
     return () => restoreScroll();
   }, [restoreScroll]);
 
-  // ✅ Prevent page scroll while dragging (fixes the “bench scroll” drag pain)
+  // Prevent page scroll while dragging
   function onDragStart(_: DragStartEvent) {
     document.documentElement.style.overflow = "hidden";
     document.body.style.overflow = "hidden";
@@ -160,7 +168,16 @@ export default function Home() {
     }
   }
 
-  // ✅ Auto-dismiss toast after a short time (so you notice each block)
+  // ✅ FIX: Reset must also reset UI-only set score + timeouts
+  const handleReset = useCallback(() => {
+    resetMatch();
+    setSetsA(0);
+    setSetsB(0);
+    setTimeoutsA([false, false, false]);
+    setTimeoutsB([false, false, false]);
+  }, [resetMatch]);
+
+  // Auto-dismiss toast after a short time
   const toastTimer = useRef<number | null>(null);
   useEffect(() => {
     if (!toast) return;
@@ -185,6 +202,9 @@ export default function Home() {
         onDragEnd={onDragEnd}
       >
         <div className="max-w-6xl mx-auto flex flex-col gap-4">
+          {/* ✅ Match Summary Modal (store-driven) */}
+          <MatchSummaryModal />
+
           {/* Toast (store-driven) */}
           {toast && (
             <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[999] px-4 pointer-events-none">
@@ -215,7 +235,6 @@ export default function Home() {
                 </button>
               </div>
 
-              {/* local keyframes (Tailwind doesn't ship this by default) */}
               <style jsx>{`
                 @keyframes toastIn {
                   from {
@@ -265,12 +284,31 @@ export default function Home() {
               >
                 Serve B
               </button>
+
+              {/* ✅ NEW: Match Summary button */}
+              <button
+                onClick={openMatchSummary}
+                disabled={savedSetsCount === 0}
+                className={[
+                  "px-4 py-2 rounded-xl font-semibold shadow",
+                  savedSetsCount > 0
+                    ? "bg-white text-black hover:bg-white/90"
+                    : "bg-white/60 text-black/40 cursor-not-allowed",
+                ].join(" ")}
+                title={
+                  savedSetsCount > 0
+                    ? "View match summary"
+                    : "Finish a set to unlock match summary"
+                }
+              >
+                Match Summary
+              </button>
             </div>
 
             {/* Center cluster (Reset/Undo) */}
             <div className="flex flex-col items-center gap-2">
               <button
-                onClick={resetMatch}
+                onClick={handleReset}
                 className="px-8 py-2 rounded-xl font-extrabold shadow bg-red-500 text-white hover:opacity-90"
               >
                 Reset
@@ -278,10 +316,16 @@ export default function Home() {
 
               <button
                 onClick={undoLastEvent}
-                className="px-6 py-2 rounded-xl font-bold shadow bg-red-500/70 text-white hover:opacity-90"
-                title="Undo last logged event"
+                disabled={!canUndo}
+                className={[
+                  "px-6 py-2 rounded-xl font-bold shadow",
+                  canUndo
+                    ? "bg-red-500/70 text-white hover:opacity-90"
+                    : "bg-white/30 text-white/50 cursor-not-allowed",
+                ].join(" ")}
+                title={canUndo ? "Undo last scored event" : "Nothing to undo"}
               >
-                Undo
+                Undo Score
               </button>
             </div>
 
@@ -327,7 +371,9 @@ export default function Home() {
                 <input
                   value={leftTeam === "A" ? teamNameA : teamNameB}
                   onChange={(e) =>
-                    leftTeam === "A" ? setTeamNameA(e.target.value) : setTeamNameB(e.target.value)
+                    leftTeam === "A"
+                      ? setTeamNameA(e.target.value)
+                      : setTeamNameB(e.target.value)
                   }
                   className="w-full text-center font-extrabold outline-none"
                 />
@@ -419,7 +465,9 @@ export default function Home() {
                 <input
                   value={rightTeam === "A" ? teamNameA : teamNameB}
                   onChange={(e) =>
-                    rightTeam === "A" ? setTeamNameA(e.target.value) : setTeamNameB(e.target.value)
+                    rightTeam === "A"
+                      ? setTeamNameA(e.target.value)
+                      : setTeamNameB(e.target.value)
                   }
                   className="w-full text-center font-extrabold outline-none"
                 />
