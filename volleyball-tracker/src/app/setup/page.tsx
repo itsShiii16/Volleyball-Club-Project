@@ -5,7 +5,21 @@ import { useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import type { Position, TeamId, Player } from "@/lib/volleyball";
 
-const POSITIONS: Position[] = ["WS", "MB", "S", "L"];
+// ✅ Updated positions
+const POSITIONS: Position[] = ["OH", "OPP", "MB", "S", "L"];
+
+const LEGACY_POSITIONS = new Set(["WS"]);
+const ALL_IMPORT_POSITIONS = new Set<string>([
+  ...POSITIONS,
+  ...Array.from(LEGACY_POSITIONS),
+]);
+
+function normalizeImportedPosition(pos: unknown): Position | null {
+  const p = String(pos ?? "").trim().toUpperCase();
+  if (!ALL_IMPORT_POSITIONS.has(p)) return null;
+  if (p === "WS") return "OH";
+  return p as Position;
+}
 
 export default function SetupPage() {
   const router = useRouter();
@@ -17,13 +31,19 @@ export default function SetupPage() {
   const removePlayer = useMatchStore((s) => s.removePlayer);
   const setPlayers = useMatchStore((s) => s.setPlayers);
 
-  // ✅ Libero auto-sub config (from patched matchStore)
+  // ✅ Libero auto-sub config
   const liberoConfigA = useMatchStore((s) => s.liberoConfigA);
   const liberoConfigB = useMatchStore((s) => s.liberoConfigB);
   const setLiberoConfig = useMatchStore((s) => s.setLiberoConfig);
 
-  const teamA = useMemo(() => players.filter((p) => p.teamId === "A"), [players]);
-  const teamB = useMemo(() => players.filter((p) => p.teamId === "B"), [players]);
+  const teamA = useMemo(
+    () => players.filter((p) => p.teamId === "A").sort((a, b) => a.jerseyNumber - b.jerseyNumber),
+    [players]
+  );
+  const teamB = useMemo(
+    () => players.filter((p) => p.teamId === "B").sort((a, b) => a.jerseyNumber - b.jerseyNumber),
+    [players]
+  );
 
   const rosterReady = teamA.length >= 6 && teamB.length >= 6;
 
@@ -33,7 +53,7 @@ export default function SetupPage() {
       teamId,
       name: "",
       jerseyNumber: 0,
-      position: "WS",
+      position: "OH", // ✅ default is now OH
     });
   }
 
@@ -71,22 +91,23 @@ export default function SetupPage() {
           return;
         }
 
-        // Basic validation
-        const valid = parsed.every(
-          (p) =>
-            typeof p.id === "string" &&
-            (p.teamId === "A" || p.teamId === "B") &&
-            typeof p.name === "string" &&
-            typeof p.jerseyNumber === "number" &&
-            POSITIONS.includes(p.position)
-        );
+        const next: Player[] = [];
 
-        if (!valid) {
-          alert("Invalid player format in JSON.");
-          return;
+        for (const raw of parsed) {
+          const id = String(raw?.id ?? "");
+          const teamId = raw?.teamId;
+          const name = String(raw?.name ?? "");
+          const jerseyNumber = Number(raw?.jerseyNumber ?? NaN);
+          const pos = normalizeImportedPosition(raw?.position);
+
+          if (!id || (teamId !== "A" && teamId !== "B") || !Number.isFinite(jerseyNumber) || !pos) {
+            continue; // Skip invalid
+          }
+
+          next.push({ id, teamId, name, jerseyNumber, position: pos });
         }
 
-        setPlayers(parsed as Player[]);
+        setPlayers(next);
       } catch {
         alert("Failed to parse JSON file.");
       }
@@ -95,25 +116,22 @@ export default function SetupPage() {
     reader.readAsText(file);
   }
 
+  // ✅ Button style constant to replace <style jsx>
+  const btnSecondary = "px-4 py-2 rounded-lg bg-white text-black shadow hover:shadow-md font-semibold border border-gray-200 transition-all";
+
   return (
     <main className="min-h-screen bg-[var(--background)] p-6">
-      <div className="max-w-6xl mx-auto">
+      <div className="max-w-6xl mx-auto pb-20">
         {/* Top bar */}
         <div className="flex items-center justify-between gap-3 mb-6">
           <h1 className="text-2xl font-extrabold text-black">Roster Setup</h1>
 
           <div className="flex gap-2">
-            <button
-              onClick={exportJSON}
-              className="px-4 py-2 rounded-lg bg-white text-black shadow hover:shadow-md font-semibold"
-            >
+            <button onClick={exportJSON} className={btnSecondary}>
               Export JSON
             </button>
 
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="px-4 py-2 rounded-lg bg-white text-black shadow hover:shadow-md font-semibold"
-            >
+            <button onClick={() => fileInputRef.current?.click()} className={btnSecondary}>
               Import JSON
             </button>
 
@@ -129,10 +147,7 @@ export default function SetupPage() {
               }}
             />
 
-            <button
-              onClick={() => router.push("/")}
-              className="px-4 py-2 rounded-lg bg-white text-black shadow hover:shadow-md font-semibold"
-            >
+            <button onClick={() => router.push("/")} className={btnSecondary}>
               Back to Court
             </button>
           </div>
@@ -184,7 +199,7 @@ export default function SetupPage() {
           <div className="text-sm text-black">
             {rosterReady ? (
               <span className="text-emerald-600 font-semibold">
-                ✓ Both teams have at least 6 players.
+                ✓ Ready to play.
               </span>
             ) : (
               <span>
@@ -197,7 +212,7 @@ export default function SetupPage() {
             onClick={() => router.push("/")}
             disabled={!rosterReady}
             className={[
-              "px-5 py-3 rounded-lg font-semibold shadow",
+              "px-5 py-3 rounded-lg font-semibold shadow transition",
               rosterReady
                 ? "bg-[var(--brand-sky)] text-white hover:opacity-90"
                 : "bg-gray-300 text-gray-600 cursor-not-allowed",
@@ -224,55 +239,57 @@ function LiberoAutoSubCard({
   teamId: TeamId;
   players: Player[];
   config: { enabled: boolean; liberoId: string | null; mbIds: string[] } | null;
-  setConfig: (teamId: TeamId, cfg: Partial<{ enabled: boolean; liberoId: string | null; mbIds: string[] }>) => void;
+  setConfig: (
+    teamId: TeamId,
+    cfg: Partial<{ enabled: boolean; liberoId: string | null; mbIds: string[] }>
+  ) => void;
 }) {
-  const liberoOptions = players.filter(
-    (p) => String(p.position).toUpperCase() === "L" || String(p.position).toUpperCase() === "LIBERO"
-  );
-  const mbOptions = players.filter((p) => String(p.position).toUpperCase() === "MB");
+  const liberoOptions = players.filter((p) => String(p.position).toUpperCase() === "L" || String(p.position).toUpperCase() === "LIBERO");
+  const mbOptions = players.filter((p) => String(p.position).toUpperCase() === "MB" || String(p.position).toUpperCase() === "MIDDLE");
 
   const enabled = config?.enabled ?? false;
   const liberoId = config?.liberoId ?? null;
   const mbIds = Array.isArray(config?.mbIds) ? config!.mbIds : [];
 
-  // toggle MB selection (max 2)
   function toggleMb(id: string) {
-    const current = Array.isArray(mbIds) ? mbIds : [];
+    const current = [...mbIds];
     const exists = current.includes(id);
 
     let next: string[];
     if (exists) {
+      // ✅ Remove logic
       next = current.filter((x) => x !== id);
     } else {
-      next = [...current, id].slice(0, 2);
+      // ✅ Add logic (max 2)
+      if (current.length >= 2) return;
+      next = [...current, id];
     }
-
     setConfig(teamId, { mbIds: next });
   }
 
   return (
-    <section className="bg-white rounded-xl shadow p-4">
-      <div className="flex items-center justify-between gap-3">
+    <section className="bg-white rounded-xl shadow p-4 border border-gray-200">
+      <div className="flex items-center justify-between gap-3 mb-3">
         <h2 className="font-extrabold text-lg text-black">{title}</h2>
 
-        <label className="flex items-center gap-2 text-sm font-semibold text-black">
+        <label className="flex items-center gap-2 text-sm font-semibold text-black cursor-pointer select-none">
           <input
             type="checkbox"
             checked={enabled}
             onChange={(e) => setConfig(teamId, { enabled: e.target.checked })}
+            className="w-4 h-4 text-pink-600 rounded focus:ring-pink-500"
           />
           Enable
         </label>
       </div>
 
       <div className="mt-3 grid grid-cols-1 gap-3">
-        {/* Libero select */}
         <div>
           <div className="text-xs font-bold text-black/60 mb-1">Choose Libero</div>
           <select
             value={liberoId ?? ""}
             onChange={(e) => setConfig(teamId, { liberoId: e.target.value || null })}
-            className="w-full border rounded-lg px-3 py-2 bg-white text-black"
+            className="w-full border rounded-lg px-3 py-2 bg-white text-black font-semibold"
           >
             <option value="">— Select Libero —</option>
             {liberoOptions.map((p) => (
@@ -289,7 +306,6 @@ function LiberoAutoSubCard({
           )}
         </div>
 
-        {/* MB pick (2) */}
         <div>
           <div className="text-xs font-bold text-black/60 mb-2">Choose 2 Middle Blockers</div>
 
@@ -298,25 +314,27 @@ function LiberoAutoSubCard({
               Add at least two players with position <b>MB</b>.
             </div>
           ) : (
-            <div className="grid gap-2">
+            <div className="flex flex-col gap-2">
               {mbOptions.map((p) => {
                 const checked = mbIds.includes(p.id);
-                const disableUnchecked = !checked && mbIds.length >= 2;
+                // ✅ Disable ONLY if not checked AND we are full (2/2)
+                const disabled = !checked && mbIds.length >= 2;
 
                 return (
                   <label
                     key={p.id}
                     className={[
-                      "flex items-center gap-2 rounded-lg border bg-white px-3 py-2",
-                      checked ? "border-teal-400" : "border-black/10",
-                      disableUnchecked ? "opacity-60" : "cursor-pointer",
+                      "flex items-center gap-3 rounded-lg border px-3 py-2 transition select-none",
+                      checked ? "border-pink-500 bg-pink-50" : "border-gray-200 hover:bg-gray-50",
+                      disabled ? "opacity-50 cursor-not-allowed hover:bg-white" : "cursor-pointer",
                     ].join(" ")}
                   >
                     <input
                       type="checkbox"
                       checked={checked}
-                      disabled={disableUnchecked}
+                      disabled={disabled}
                       onChange={() => toggleMb(p.id)}
+                      className="w-4 h-4 text-pink-600 rounded focus:ring-pink-500"
                     />
                     <div className="flex-1 text-sm font-semibold text-black truncate">
                       #{p.jerseyNumber} {p.name || "(No name)"}
@@ -330,22 +348,15 @@ function LiberoAutoSubCard({
 
           <div className="mt-2 text-xs text-black/60 font-semibold">
             Selected:{" "}
-            <b className={mbIds.length === 2 ? "text-black" : "text-amber-700"}>
+            <b className={mbIds.length === 2 ? "text-green-600" : "text-amber-700"}>
               {mbIds.length}/2
             </b>
           </div>
-        </div>
-
-        <div className="text-xs text-black/60 font-semibold leading-snug">
-          Auto-sub will swap your selected <b>Libero</b> in for whichever selected <b>MB</b> reaches
-          the <b>back row (1/5/6)</b>, and swap that MB back when rotating to the{" "}
-          <b>front row (2/3/4)</b>.
         </div>
       </div>
     </section>
   );
 }
-
 
 /* ------------------ TEAM PANEL ------------------ */
 
@@ -367,13 +378,13 @@ function TeamPanel({
   jerseyDuplicate: (teamId: TeamId, jersey: number, id: string) => boolean;
 }) {
   return (
-    <section className="bg-white rounded-xl shadow p-4">
+    <section className="bg-white rounded-xl shadow p-4 border border-gray-200">
       <div className="flex items-center justify-between mb-3">
         <h2 className="font-extrabold text-lg text-black">{title}</h2>
 
         <button
           onClick={onAdd}
-          className="px-3 py-2 rounded-lg bg-[var(--brand-sky)] text-white text-sm font-semibold shadow"
+          className="px-3 py-2 rounded-lg bg-[var(--brand-sky)] text-white text-sm font-semibold shadow hover:opacity-90"
         >
           + Add Player
         </button>
@@ -386,34 +397,30 @@ function TeamPanel({
           return (
             <div
               key={p.id}
-              className="grid grid-cols-[1fr_90px_90px_auto] gap-2 items-center"
+              className="grid grid-cols-[1fr_80px_90px_auto] gap-2 items-center"
             >
               <input
                 value={p.name}
                 placeholder="Name"
                 onChange={(e) => onUpdate(p.id, { name: e.target.value })}
-                className="border rounded-lg px-3 py-2 bg-white text-black"
+                className="border border-gray-300 rounded-lg px-3 py-2 bg-white text-black text-sm font-semibold"
               />
 
               <input
                 type="number"
                 value={p.jerseyNumber || ""}
                 placeholder="#"
-                onChange={(e) =>
-                  onUpdate(p.id, { jerseyNumber: Number(e.target.value) })
-                }
+                onChange={(e) => onUpdate(p.id, { jerseyNumber: Number(e.target.value) })}
                 className={[
-                  "border rounded-lg px-3 py-2 bg-white text-black",
-                  dup ? "border-red-500" : "",
+                  "border rounded-lg px-2 py-2 bg-white text-black text-center text-sm font-bold",
+                  dup ? "border-red-500 ring-1 ring-red-500" : "border-gray-300",
                 ].join(" ")}
               />
 
               <select
                 value={p.position}
-                onChange={(e) =>
-                  onUpdate(p.id, { position: e.target.value as Position })
-                }
-                className="border rounded-lg px-3 py-2 bg-white text-black"
+                onChange={(e) => onUpdate(p.id, { position: e.target.value as Position })}
+                className="border border-gray-300 rounded-lg px-2 py-2 bg-white text-black text-sm font-bold"
               >
                 {POSITIONS.map((pos) => (
                   <option key={pos} value={pos}>
@@ -422,18 +429,24 @@ function TeamPanel({
                 ))}
               </select>
 
-              <button onClick={() => onRemove(p.id)} className="text-red-600 font-bold">
+              <button onClick={() => onRemove(p.id)} className="text-red-400 hover:text-red-600 p-2 font-bold">
                 ✕
               </button>
 
               {dup && (
-                <div className="col-span-4 text-xs text-red-600">
-                  Jersey number must be unique within the team.
+                <div className="col-span-4 text-xs text-red-600 font-bold">
+                  Duplicate Jersey #
                 </div>
               )}
             </div>
           );
         })}
+        
+        {players.length === 0 && (
+          <div className="text-center text-sm text-gray-400 py-4 italic">
+            No players added yet.
+          </div>
+        )}
       </div>
     </section>
   );

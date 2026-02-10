@@ -14,7 +14,6 @@ export default function SlotPanel() {
   const players = useMatchStore((s) => s.players);
   const assign = useMatchStore((s) => s.assignPlayerToSlot);
   const substituteInSlot = useMatchStore((s) => s.substituteInSlot);
-  const clearSlot = useMatchStore((s) => s.clearSlot);
   const getOnCourtPlayerIds = useMatchStore((s) => s.getOnCourtPlayerIds);
 
   const courtA = useMatchStore((s) => s.courtA);
@@ -114,11 +113,9 @@ export default function SlotPanel() {
     teamId,
     slot,
     player,
-    onCourt,
     bench,
     cfg,
     swap,
-    libero,
     isAutoLiberoOnThisSlot,
     replaced,
     court,
@@ -176,96 +173,175 @@ export default function SlotPanel() {
     swap.active && swap.slot ? slotLabel[swap.slot] : null;
 
   return (
-    <div className="fixed inset-0 z-50">
-      <button className="absolute inset-0 bg-black/30" onClick={closeAll} />
+    <div className="fixed inset-0 z-50 flex justify-end">
+      {/* Backdrop */}
+      <div 
+        className="absolute inset-0 bg-black/40 backdrop-blur-sm transition-opacity" 
+        onClick={closeAll} 
+      />
 
-      <div className="absolute right-0 top-0 h-full w-full max-w-md bg-white shadow-2xl p-5 flex flex-col">
-        <div className="flex justify-between">
+      {/* Slide-out Panel */}
+      <div className="relative h-full w-full max-w-sm bg-white shadow-2xl flex flex-col transform transition-transform overflow-hidden">
+        
+        {/* Header */}
+        <div className="shrink-0 px-6 py-5 border-b border-gray-100 flex items-start justify-between bg-white z-10">
           <div>
-            <div className="text-xs font-semibold text-black/60">
-              {titleTeam} • Slot <b>{slotLabel[slot]}</b>
+            <div className="text-xs font-bold text-gray-400 uppercase tracking-wider">
+              {titleTeam} • Slot {slotLabel[slot]}
             </div>
-            <h2 className="text-xl font-extrabold">
+            <h2 className="text-2xl font-black text-gray-900 mt-1">
               {player ? `#${player.jerseyNumber} ${player.name}` : "Empty Slot"}
             </h2>
           </div>
-          <button onClick={closeAll}>Close</button>
+          <button 
+            onClick={closeAll} 
+            className="p-2 -mr-2 rounded-full text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition"
+          >
+            ✕
+          </button>
         </div>
 
-        {isAutoLiberoOnThisSlot && replaced && (
-          <div className="mt-2 text-xs bg-teal-50 border p-2 rounded">
-            Libero replacing #{replaced.jerseyNumber} {replaced.name}
-          </div>
-        )}
-
-        {/* Libero automation */}
-        <div className="mt-4 border rounded p-3">
-          <button
-            onClick={() => setLiberoConfig(teamId, { enabled: !cfg.enabled })}
-          >
-            {cfg.enabled ? "Disable" : "Enable"} Libero Auto-Sub
-          </button>
-
-          <select
-            value={cfg.liberoId ?? ""}
-            onChange={(e) =>
-              setLiberoConfig(teamId, { liberoId: e.target.value || null })
-            }
-          >
-            <option value="">Select Libero</option>
-            {liberos.map((p) => (
-              <option key={p.id} value={p.id}>
-                #{p.jerseyNumber} {p.name}
-              </option>
-            ))}
-          </select>
-
-          <div className="mt-2">
-            {mbs.map((p) => (
-              <label key={p.id} className="block">
-                <input
-                  type="checkbox"
-                  checked={cfg.mbIds?.includes(p.id) ?? false}
-                  disabled={
-                    !(cfg.mbIds?.includes(p.id)) &&
-                    (cfg.mbIds?.length ?? 0) >= 2
-                  }
-                  onChange={() => toggleMbId(p.id)}
-                />
-                #{p.jerseyNumber} {p.name}
-              </label>
-            ))}
-          </div>
-
-          <div className="text-xs mt-1">
-            Selected: {selectedMbPlayers.length}/2
-          </div>
-
-          {swap.active && currentSwapSlotLabel && (
-            <div className="text-xs mt-1">
-              Active at slot {currentSwapSlotLabel}
+        {/* Scrollable Content */}
+        <div className="flex-1 overflow-y-auto p-6 bg-gray-50">
+          
+          {/* Libero Status Banner */}
+          {isAutoLiberoOnThisSlot && replaced && (
+            <div className="mb-4 text-xs font-bold text-teal-800 bg-teal-100 border border-teal-200 px-3 py-2 rounded-lg flex items-center gap-2">
+              <span className="text-lg">🔄</span> 
+              Libero actively replacing #{replaced.jerseyNumber}
             </div>
           )}
-        </div>
 
-        {/* Bench */}
-        <div ref={benchRef} className="mt-4">
-          {bench.map((p) => (
-            <button key={p.id} onClick={() => handleSub(p.id)}>
-              #{p.jerseyNumber} {p.name}
-            </button>
-          ))}
-        </div>
-
-        {swapMode && (
-          <div className="grid grid-cols-3 gap-2 mt-4">
-            {[1, 2, 3, 4, 5, 6].map((n) => (
-              <button key={n} onClick={() => handleSwapPick(n as RotationSlot)}>
-                {slotLabel[n as RotationSlot]}
+          {/* Libero Settings */}
+          <div className="mb-6 rounded-2xl bg-white border border-gray-200 p-4 shadow-sm">
+            <div className="flex justify-between items-center mb-3">
+              <h3 className="text-sm font-black text-gray-900">Libero Config</h3>
+              <button
+                onClick={() => setLiberoConfig(teamId, { enabled: !cfg.enabled })}
+                className={`text-[10px] font-bold px-2 py-1 rounded border transition ${
+                  cfg.enabled 
+                    ? "bg-green-100 text-green-700 border-green-200" 
+                    : "bg-gray-100 text-gray-500 border-gray-200"
+                }`}
+              >
+                {cfg.enabled ? "ENABLED" : "DISABLED"}
               </button>
-            ))}
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">Active Libero</label>
+                <select
+                  className="w-full text-sm font-bold p-2 rounded-lg bg-gray-50 border border-gray-200 focus:border-blue-500 outline-none text-gray-900"
+                  value={cfg.liberoId ?? ""}
+                  onChange={(e) =>
+                    setLiberoConfig(teamId, { liberoId: e.target.value || null })
+                  }
+                >
+                  <option value="" className="text-gray-400">Select Libero...</option>
+                  {liberos.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      #{p.jerseyNumber} {p.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">
+                  Middles to Replace ({selectedMbPlayers.length}/2)
+                </label>
+                <div className="flex flex-col gap-1 max-h-32 overflow-y-auto">
+                  {mbs.length === 0 && <div className="text-xs text-gray-400 italic">No MBs in roster</div>}
+                  {mbs.map((p) => {
+                    const isChecked = cfg.mbIds?.includes(p.id) ?? false;
+                    const isDisabled = !isChecked && (cfg.mbIds?.length ?? 0) >= 2;
+                    
+                    return (
+                      <label 
+                        key={p.id} 
+                        className={`flex items-center gap-2 p-2 rounded-lg cursor-pointer transition ${
+                          isChecked ? "bg-blue-50 border-blue-200" : "hover:bg-gray-50"
+                        } ${isDisabled ? "opacity-50 cursor-not-allowed" : ""}`}
+                      >
+                        <input
+                          type="checkbox"
+                          className="rounded text-blue-600 focus:ring-blue-500"
+                          checked={isChecked}
+                          disabled={isDisabled}
+                          onChange={() => toggleMbId(p.id)}
+                        />
+                        <span className={`text-sm font-bold ${isChecked ? "text-blue-900" : "text-gray-700"}`}>
+                          #{p.jerseyNumber} {p.name}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {swap.active && currentSwapSlotLabel && (
+                <div className="text-[10px] text-gray-500 font-medium pt-2 border-t mt-2">
+                  ℹ️ Currently active at slot <b>{currentSwapSlotLabel}</b>
+                </div>
+              )}
+            </div>
           </div>
-        )}
+
+          {/* Bench List */}
+          <div ref={benchRef}>
+            <h3 className="text-sm font-black text-gray-900 mb-3 uppercase tracking-wide">
+              Assign from Bench
+            </h3>
+            
+            {bench.length === 0 ? (
+              <div className="text-sm text-gray-400 text-center py-8 bg-white rounded-xl border border-dashed border-gray-200">
+                Bench is empty.
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {bench.map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => handleSub(p.id)}
+                    className="group flex items-center justify-between w-full p-3 bg-white border border-gray-200 rounded-xl shadow-sm hover:border-blue-300 hover:shadow-md transition-all active:scale-[0.99]"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="h-8 w-8 rounded-full bg-gray-100 flex items-center justify-center text-sm font-black text-gray-700 group-hover:bg-blue-100 group-hover:text-blue-700 transition-colors">
+                        {p.jerseyNumber}
+                      </div>
+                      <div className="flex flex-col items-start">
+                        <span className="text-sm font-bold text-gray-900">{p.name}</span>
+                      </div>
+                    </div>
+                    <span className="text-xs font-bold text-gray-400 bg-gray-50 px-2 py-1 rounded group-hover:bg-blue-50 group-hover:text-blue-600 transition-colors">
+                      {p.position}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Debug/Swap Mode (Hidden unless active logic triggers it) */}
+          {swapMode && (
+            <div className="mt-6 border-t pt-4">
+              <h3 className="text-sm font-bold text-gray-900 mb-2">Debug: Manual Swap</h3>
+              <div className="grid grid-cols-3 gap-2">
+                {[1, 2, 3, 4, 5, 6].map((n) => (
+                  <button 
+                    key={n} 
+                    onClick={() => handleSwapPick(n as RotationSlot)}
+                    className="p-2 bg-gray-200 rounded text-xs font-bold hover:bg-gray-300"
+                  >
+                    Slot {slotLabel[n as RotationSlot]}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+        </div>
       </div>
     </div>
   );
