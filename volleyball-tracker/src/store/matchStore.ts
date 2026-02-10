@@ -782,11 +782,13 @@ type MatchStore = {
   setsWonB: number;
   savedSets: SavedSet[];
 
+  // ✅ New Action to change rules (e.g. Best of 3/5)
+  updateSetRules: (rules: Partial<SetRules>) => void;
 
-// ✅ Derived stats (no extra persistence needed)
-getPlayerMatchStats: (playerId: string) => PlayerMatchStats;
-getAllPlayerMatchStats: () => Record<string, PlayerMatchStats>;
-getRankingsByPosition: () => Record<PositionGroup, RankedPlayer[]>;
+  // ✅ Derived stats (no extra persistence needed)
+  getPlayerMatchStats: (playerId: string) => PlayerMatchStats;
+  getAllPlayerMatchStats: () => Record<string, PlayerMatchStats>;
+  getRankingsByPosition: () => Record<PositionGroup, RankedPlayer[]>;
 
   // ✅ Match Summary modal (store-driven)
   matchSummaryOpen: boolean;
@@ -946,23 +948,22 @@ export const useMatchStore = create<MatchStore>()(
         liberoConfigA: defaultLiberoConfig(),
         liberoConfigB: defaultLiberoConfig(),
 
-        setLiberoConfig: (teamId, cfg) =>
-          set((state) => {
-            const prevCfg = teamId === "A" ? state.liberoConfigA : state.liberoConfigB;
+          setLiberoConfig: (teamId, cfg) =>
+            set((state) => {
+              const prevCfg = teamId === "A" ? state.liberoConfigA : state.liberoConfigB;
 
-            const next: LiberoConfig = {
-              ...prevCfg,
-              ...cfg,
-              mbIds:
-                cfg.mbIds !== undefined
-                  ? mergeMbIdsByIndex(prevCfg.mbIds, cfg.mbIds)
-                  : prevCfg.mbIds,
-            };
+              const next: LiberoConfig = {
+                ...prevCfg,
+                ...cfg,
+                // ✅ FIX: Use the new array directly (removed mergeMbIdsByIndex)
+                mbIds: cfg.mbIds !== undefined ? cfg.mbIds : prevCfg.mbIds,
+              };
 
-            next.mbIds = Array.from(new Set((next.mbIds ?? []).filter(Boolean))).slice(0, 2);
+              // Keep the safety checks
+              next.mbIds = Array.from(new Set((next.mbIds ?? []).filter(Boolean))).slice(0, 2);
 
-            if (teamId === "A") return { ...state, liberoConfigA: next };
-            return { ...state, liberoConfigB: next };
+              if (teamId === "A") return { ...state, liberoConfigA: next };
+              return { ...state, liberoConfigB: next };
           }),
 
         liberoSwapA: defaultLiberoSwap(),
@@ -980,6 +981,11 @@ export const useMatchStore = create<MatchStore>()(
         setsWonB: 0,
         savedSets: [],
 
+        // ✅ Update rules implementation
+        updateSetRules: (rules) =>
+          set((state) => ({
+            setRules: { ...state.setRules, ...rules },
+          })),
 
 // ✅ Derived stats (match-level): points + POG + rankings
 getAllPlayerMatchStats: () => {

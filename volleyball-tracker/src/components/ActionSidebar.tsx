@@ -42,7 +42,7 @@ function isWingPosition(pos: string) {
 }
 
 /**
- * Generate buttons based on player position AND game context (serving vs receiving).
+ * Generate buttons based on player position AND game context.
  */
 function buttonsForContext(
   pos: string,
@@ -50,6 +50,7 @@ function buttonsForContext(
     frontRow: boolean; 
     libero: boolean; 
     isServingTeam: boolean; 
+    isServingPlayer: boolean; // ✅ NEW: Only the actual server gets serve buttons
   }
 ): Btn[] {
   const p = normPos(pos);
@@ -86,8 +87,8 @@ function buttonsForContext(
     { skill: "SPIKE", outcome: "ERROR", label: "Attack • Error", desc: "SPIKE • ERROR" },
   ];
 
-  // 6. Serving (Only for serving team)
-  const serve: Btn[] = opts.isServingTeam ? [
+  // 6. Serving (Only for the actual server on the serving team)
+  const serve: Btn[] = opts.isServingPlayer ? [
     { skill: "SERVE", outcome: "ACE", label: "Serve • Ace", desc: "SERVE • ACE" },
     { skill: "SERVE", outcome: "ERROR", label: "Serve • Error", desc: "SERVE • ERROR" },
   ] : [];
@@ -140,7 +141,9 @@ export default function ActionSidebar() {
   const courtA = useMatchStore((s) => s.courtA);
   const courtB = useMatchStore((s) => s.courtB);
   const events = useMatchStore((s) => s.events);
+  
   const servingTeam = useMatchStore((s) => s.servingTeam);
+  const leftTeam = useMatchStore((s) => s.leftTeam); // ✅ Needed for server slot logic
 
   const info = useMemo(() => {
     if (!active) return null;
@@ -152,13 +155,26 @@ export default function ActionSidebar() {
 
     const frontRow = isFrontRowSlot(slot);
     const libero = isLiberoPosition(player.position);
+    
+    // Check serving status
     const isServingTeam = (teamId === servingTeam);
+    
+    // Server logic matches Court.tsx: 
+    // If team is on Left, server is slot 1. If Right, slot 5.
+    const servingSlot = teamId === leftTeam ? 1 : 5;
+    const isServingPlayer = isServingTeam && slot === servingSlot;
 
-    const btns = buttonsForContext(player.position, { frontRow, libero, isServingTeam });
+    const btns = buttonsForContext(player.position, { 
+      frontRow, 
+      libero, 
+      isServingTeam, 
+      isServingPlayer 
+    });
+    
     const recent = events.filter((e) => e.playerId === player.id).slice(0, 5);
 
     return { teamId, slot, player, btns, recent, frontRow };
-  }, [active, players, courtA, courtB, events, servingTeam]);
+  }, [active, players, courtA, courtB, events, servingTeam, leftTeam]);
 
   function handleOpenSettings() {
     if (!active) return;
@@ -183,7 +199,7 @@ export default function ActionSidebar() {
                 <div className="text-[10px] font-bold uppercase text-gray-400 tracking-wider">
                   Team {info.teamId} • Slot {slotLabel[info.slot]} • {info.frontRow ? "Front" : "Back"}
                 </div>
-                {/* ✅ Balanced Name Size: text-2xl */}
+                {/* Balanced Name Size */}
                 <h2 className="text-2xl font-black text-gray-900 leading-none mt-1 mb-1">
                   #{info.player.jerseyNumber} {info.player.name.split(" ")[0]}
                 </h2>
@@ -202,7 +218,6 @@ export default function ActionSidebar() {
 
       {/* Action Buttons */}
       <div className="flex-1 overflow-y-auto p-4 bg-gray-50/50">
-        {/* ✅ Tighter Gap: gap-2 */}
         <div className="flex flex-col gap-2">
           {info.btns.length === 0 ? (
              <div className="text-base font-medium text-gray-400 text-center py-10">
@@ -220,7 +235,7 @@ export default function ActionSidebar() {
                     outcome: b.outcome,
                   })
                 }
-                // ✅ Balanced Buttons: p-3, text-base
+                // Balanced Buttons: p-3, text-base
                 className="group flex w-full flex-col items-start rounded-xl border border-gray-200 bg-white p-3 shadow-sm transition-all hover:border-blue-400 hover:shadow-md active:scale-[0.98] active:bg-blue-50"
               >
                 <div className="flex w-full justify-between items-center">

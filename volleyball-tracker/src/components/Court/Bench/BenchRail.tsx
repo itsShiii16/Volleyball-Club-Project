@@ -13,11 +13,17 @@ function getFirstName(name?: string) {
 
 export default function BenchRail({ teamId }: { teamId: TeamId }) {
   const players = useMatchStore((s) => s.players);
-  const getOnCourtPlayerIds = useMatchStore((s) => s.getOnCourtPlayerIds);
+  
+  // ✅ FIX: Subscribe directly to the court state so this component
+  // re-renders whenever someone is added/removed/subbed on the court.
+  const court = useMatchStore((s) => (teamId === "A" ? s.courtA : s.courtB));
 
-  const onCourt = new Set(getOnCourtPlayerIds(teamId));
+  // Derive the set of IDs currently on the court from the reactive 'court' object
+  const onCourtIds = new Set(Object.values(court).filter(Boolean));
+
+  // Filter out players who are on the court
   const bench = players
-    .filter((p) => p.teamId === teamId && !onCourt.has(p.id))
+    .filter((p) => p.teamId === teamId && !onCourtIds.has(p.id))
     .sort((a, b) => a.jerseyNumber - b.jerseyNumber);
 
   return (
@@ -71,7 +77,7 @@ function BenchChip({
       data: {
         playerId: id,
         teamId,
-        position, // ✅ IMPORTANT: carry position in drag data (for future rules)
+        position, 
       },
     });
 
@@ -80,6 +86,7 @@ function BenchChip({
     opacity: isDragging ? 0.7 : 1,
   };
 
+  // Safe fallback for colors
   const c = positionColors(position);
 
   return (

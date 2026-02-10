@@ -2,7 +2,6 @@
 
 import Court from "@/components/Court/Court";
 import SlotPanel from "@/components/Court/SlotPanel";
-// import ScoresheetPanel from "@/components/Court/Scoresheet/ScoresheetPanel"; // ❌ DELETE or COMMENT OUT this import
 import BenchRail from "@/components/Court/Bench/BenchRail";
 import MatchSummaryModal from "@/components/MatchSummary/MatchSummaryModal";
 
@@ -49,16 +48,23 @@ export default function Home() {
   const scoreA = useMatchStore((s) => s.scoreA);
   const scoreB = useMatchStore((s) => s.scoreB);
 
-  // Match Summary (store-driven)
+  // Set Rules (Best of 3/5)
+  const setRules = useMatchStore((s) => s.setRules);
+  const updateSetRules = useMatchStore((s) => s.updateSetRules);
+
+  // Match Summary
   const openMatchSummary = useMatchStore((s) => s.openMatchSummary);
   const savedSetsCount = useMatchStore((s) => (s.savedSets?.length ?? 0));
 
-  // Toast from store
+  // Toast
   const toast = useMatchStore((s) => s.toast);
   const clearToast = useMatchStore((s) => s.clearToast);
 
   const teamA = useMemo(() => players.filter((p) => p.teamId === "A"), [players]);
   const teamB = useMemo(() => players.filter((p) => p.teamId === "B"), [players]);
+  
+  // Note: rosterReady check removed from UI since Auto-fill is gone, 
+  // but logic stays if needed elsewhere.
   const rosterReady = teamA.length >= 6 && teamB.length >= 6;
 
   // UI-only: names, set score, timeouts
@@ -119,31 +125,6 @@ export default function Home() {
     assign(teamId, slotNum as any, playerId);
   }
 
-  function autoFill() {
-    if (!rosterReady) return;
-
-    resetCourt("A");
-    resetCourt("B");
-
-    const A = teamA.slice(0, 6);
-    const B = teamB.slice(0, 6);
-
-    // slots: 4 FL, 3 FM, 2 FR, 5 BL, 6 BM, 1 BR
-    assign("A", 4, A[0].id);
-    assign("A", 3, A[1].id);
-    assign("A", 2, A[2].id);
-    assign("A", 5, A[3].id);
-    assign("A", 6, A[4].id);
-    assign("A", 1, A[5].id);
-
-    assign("B", 4, B[0].id);
-    assign("B", 3, B[1].id);
-    assign("B", 2, B[2].id);
-    assign("B", 5, B[3].id);
-    assign("B", 6, B[4].id);
-    assign("B", 1, B[5].id);
-  }
-
   function rotateLeftSide() {
     rotateTeam(leftTeam);
   }
@@ -158,11 +139,27 @@ export default function Home() {
     resetCourt(rightTeam);
   }
 
+  // Toggle specific timeout (allows undoing/removing a checked box)
   function toggleTimeout(team: "A" | "B", idx: number) {
     if (team === "A") {
       setTimeoutsA((prev) => prev.map((v, i) => (i === idx ? !v : v)));
     } else {
       setTimeoutsB((prev) => prev.map((v, i) => (i === idx ? !v : v)));
+    }
+  }
+
+  // Use next available timeout (for the main button)
+  function useNextTimeout(team: "A" | "B") {
+    if (team === "A") {
+      const idx = timeoutsA.findIndex((used) => !used);
+      if (idx !== -1) {
+        toggleTimeout("A", idx);
+      }
+    } else {
+      const idx = timeoutsB.findIndex((used) => !used);
+      if (idx !== -1) {
+        toggleTimeout("B", idx);
+      }
     }
   }
 
@@ -260,6 +257,22 @@ export default function Home() {
                   <button onClick={openMatchSummary} disabled={savedSetsCount === 0} className={["px-4 py-2 rounded-xl font-semibold shadow", savedSetsCount > 0 ? "bg-white text-black hover:bg-white/90" : "bg-white/60 text-black/40 cursor-not-allowed"].join(" ")}>
                     Match Summary
                   </button>
+
+                  {/* Best of 3/5 Selector */}
+                  <div className="flex items-center bg-white rounded-xl shadow border border-gray-200 overflow-hidden ml-2">
+                    <button 
+                      onClick={() => updateSetRules({ bestOf: 3 })}
+                      className={`px-3 py-2 text-xs font-bold ${setRules.bestOf === 3 ? 'bg-gray-900 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
+                    >
+                      Best of 3
+                    </button>
+                    <button 
+                      onClick={() => updateSetRules({ bestOf: 5 })}
+                      className={`px-3 py-2 text-xs font-bold ${setRules.bestOf === 5 ? 'bg-gray-900 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
+                    >
+                      Best of 5
+                    </button>
+                  </div>
                 </div>
 
                 {/* Center cluster */}
@@ -280,17 +293,35 @@ export default function Home() {
 
               {/* Second row (Scores) */}
               <div className="grid grid-cols-[160px_1fr_160px] gap-3 items-center">
+                
+                {/* Left Side */}
                 <div className="flex flex-col gap-2">
-                  <button onClick={clearLeftSide} className="px-4 py-3 rounded-xl font-semibold shadow bg-white text-black hover:bg-white/90">Clear Team</button>
+                  {/* Name Input */}
                   <div className="rounded-xl bg-white shadow px-4 py-4 text-black font-extrabold text-center">
                     <input value={leftTeam === "A" ? teamNameA : teamNameB} onChange={(e) => leftTeam === "A" ? setTeamNameA(e.target.value) : setTeamNameB(e.target.value)} className="w-full text-center font-extrabold outline-none" />
                   </div>
-                  <div className="flex items-center justify-center gap-3">
-                    <TimeoutPips value={leftTeam === "A" ? timeoutsA : timeoutsB} onToggle={(idx) => toggleTimeout(leftTeam, idx)} />
-                    <button className="px-3 py-2 rounded-lg bg-white shadow text-xs font-bold text-black">Timeout</button>
+                  
+                  {/* Timeouts */}
+                  <div className="flex flex-col items-center gap-2">
+                    <TimeoutPips 
+                      value={leftTeam === "A" ? timeoutsA : timeoutsB} 
+                      onToggle={(idx) => toggleTimeout(leftTeam, idx)}
+                    />
+                    <button 
+                      onClick={() => useNextTimeout(leftTeam)}
+                      className="px-3 py-2 rounded-lg bg-white shadow text-xs font-bold text-black hover:bg-red-50 hover:text-red-600 transition"
+                    >
+                      Timeout
+                    </button>
                   </div>
+
+                  {/* ✅ Clear Board moved here (above court, below names) */}
+                  <button onClick={clearLeftSide} className="mt-1 px-3 py-1 text-xs font-bold text-gray-400 hover:text-red-600 self-center transition-colors">
+                    Clear Board
+                  </button>
                 </div>
 
+                {/* Center Scoreboard */}
                 <div className="flex flex-col items-center gap-3">
                   <div className="rounded-xl bg-white shadow px-6 py-2 text-black font-extrabold">
                     SET SCORE: <span className="font-black">{setsA}-{setsB}</span>
@@ -303,20 +334,35 @@ export default function Home() {
                     <button onClick={() => setSetsB((v) => Math.min(5, v + 1))} className="h-9 w-9 rounded-lg bg-white shadow font-black text-black">+</button>
                   </div>
                   <div className="rounded-xl bg-white shadow px-10 py-2 text-black font-black text-lg">{scoreA} - {scoreB}</div>
-                  <button onClick={autoFill} disabled={!rosterReady} className={["px-5 py-2 rounded-xl font-bold shadow transition", rosterReady ? "bg-white text-black hover:bg-white/90" : "bg-white/60 text-black/40 cursor-not-allowed"].join(" ")}>
-                    Auto-fill Starting 6
-                  </button>
+                  
+                  {/* ❌ Auto-fill Starting 6 Removed */}
                 </div>
 
+                {/* Right Side */}
                 <div className="flex flex-col gap-2">
-                  <button onClick={clearRightSide} className="px-4 py-3 rounded-xl font-semibold shadow bg-white text-black hover:bg-white/90">Clear Team</button>
+                  {/* Name Input */}
                   <div className="rounded-xl bg-white shadow px-4 py-4 text-black font-extrabold text-center">
                     <input value={rightTeam === "A" ? teamNameA : teamNameB} onChange={(e) => rightTeam === "A" ? setTeamNameA(e.target.value) : setTeamNameB(e.target.value)} className="w-full text-center font-extrabold outline-none" />
                   </div>
-                  <div className="flex items-center justify-center gap-3">
-                    <button className="px-3 py-2 rounded-lg bg-white shadow text-xs font-bold text-black">Timeout</button>
-                    <TimeoutPips value={rightTeam === "A" ? timeoutsA : timeoutsB} onToggle={(idx) => toggleTimeout(rightTeam, idx)} />
+
+                  {/* Timeouts */}
+                  <div className="flex flex-col items-center gap-2">
+                    <TimeoutPips 
+                      value={rightTeam === "A" ? timeoutsA : timeoutsB} 
+                      onToggle={(idx) => toggleTimeout(rightTeam, idx)}
+                    />
+                    <button 
+                      onClick={() => useNextTimeout(rightTeam)}
+                      className="px-3 py-2 rounded-lg bg-white shadow text-xs font-bold text-black hover:bg-red-50 hover:text-red-600 transition"
+                    >
+                      Timeout
+                    </button>
                   </div>
+
+                  {/* ✅ Clear Board moved here (above court, below names) */}
+                  <button onClick={clearRightSide} className="mt-1 px-3 py-1 text-xs font-bold text-gray-400 hover:text-red-600 self-center transition-colors">
+                    Clear Board
+                  </button>
                 </div>
               </div>
 
@@ -329,7 +375,6 @@ export default function Home() {
 
               {/* Panels */}
               <SlotPanel />
-              {/* ❌ ScoresheetPanel Removed from here */}
             </div>
           </DndContext>
         </main>
@@ -343,11 +388,21 @@ export default function Home() {
   );
 }
 
-function TimeoutPips({ value, onToggle }: { value: boolean[]; onToggle: (idx: number) => void; }) {
+// ✅ Updated Pips: Click to toggle, Red when used
+function TimeoutPips({ value, onToggle }: { value: boolean[]; onToggle: (idx: number) => void }) {
   return (
     <div className="flex items-center gap-2">
-      {value.map((v, idx) => (
-        <button key={idx} type="button" onClick={() => onToggle(idx)} className={["h-4 w-4 rounded-sm shadow", v ? "bg-gray-900" : "bg-white"].join(" ")} />
+      {value.map((used, idx) => (
+        <button
+          key={idx}
+          type="button"
+          onClick={() => onToggle(idx)}
+          className={[
+            "h-4 w-4 rounded-sm shadow transition-colors duration-300 hover:scale-110", 
+            used ? "bg-red-500" : "bg-white"
+          ].join(" ")}
+          title={used ? "Timeout used (click to undo)" : "Timeout available (click to use)"}
+        />
       ))}
     </div>
   );
