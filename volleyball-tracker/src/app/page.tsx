@@ -63,8 +63,6 @@ export default function Home() {
   const teamA = useMemo(() => players.filter((p) => p.teamId === "A"), [players]);
   const teamB = useMemo(() => players.filter((p) => p.teamId === "B"), [players]);
   
-  // Note: rosterReady check removed from UI since Auto-fill is gone, 
-  // but logic stays if needed elsewhere.
   const rosterReady = teamA.length >= 6 && teamB.length >= 6;
 
   // UI-only: names, set score, timeouts
@@ -139,7 +137,7 @@ export default function Home() {
     resetCourt(rightTeam);
   }
 
-  // Toggle specific timeout (allows undoing/removing a checked box)
+  // Toggle specific timeout
   function toggleTimeout(team: "A" | "B", idx: number) {
     if (team === "A") {
       setTimeoutsA((prev) => prev.map((v, i) => (i === idx ? !v : v)));
@@ -148,7 +146,7 @@ export default function Home() {
     }
   }
 
-  // Use next available timeout (for the main button)
+  // Use next available timeout
   function useNextTimeout(team: "A" | "B") {
     if (team === "A") {
       const idx = timeoutsA.findIndex((used) => !used);
@@ -187,21 +185,22 @@ export default function Home() {
   return (
     <div className="flex h-screen w-full overflow-hidden bg-[var(--background)]">
       
-      {/* 🟢 LEFT: Event Log Rail */}
-      <div className="w-64 shrink-0 border-r border-black/10 shadow-sm z-10 overflow-hidden bg-white/50 backdrop-blur-sm">
+      {/* 🟢 LEFT: Event Log Rail - Hidden on Mobile */}
+      <div className="hidden lg:block w-64 shrink-0 border-r border-black/10 shadow-sm z-10 overflow-hidden bg-white/50 backdrop-blur-sm">
         <EventLogRail />
       </div>
 
       {/* 🟢 CENTER: Main Content */}
       <div className="flex-1 overflow-y-auto">
-        <main className="min-h-full p-6">
+        <main className="min-h-full p-2 sm:p-4 md:p-6">
           <DndContext
             sensors={sensors}
             onDragStart={onDragStart}
             onDragCancel={onDragCancel}
             onDragEnd={onDragEnd}
           >
-            <div className="max-w-6xl mx-auto flex flex-col gap-4">
+            {/* Added pb-20 so bottom isn't cut off on scroll */}
+            <div className="max-w-6xl mx-auto flex flex-col gap-4 pb-20">
               <MatchSummaryModal />
 
               {toast && (
@@ -242,33 +241,47 @@ export default function Home() {
               )}
 
               {/* ... Top Action Rows ... */}
-              <div className="grid grid-cols-[1fr_auto_1fr] gap-3 items-center">
+              {/* Added flex-wrap for mobile responsiveness */}
+              <div className="flex flex-wrap items-center justify-between gap-3">
                 {/* Left cluster */}
                 <div className="flex gap-2 flex-wrap items-center">
-                  <button onClick={() => router.push("/setup")} className="px-4 py-2 rounded-xl font-semibold shadow bg-white text-black hover:bg-white/90">
+                  <button 
+                    onClick={() => router.push("/setup")} 
+                    className="px-3 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm rounded-xl font-semibold shadow bg-white text-black hover:bg-white/90"
+                  >
                     Set up Roster
                   </button>
-                  <button onClick={() => setServingTeam("A")} className={["px-4 py-2 rounded-xl font-semibold shadow", servingTeam === "A" ? "bg-[var(--brand-sky)] text-white" : "bg-white text-black hover:bg-white/90"].join(" ")}>
+                  <button 
+                    onClick={() => setServingTeam("A")} 
+                    className={["px-3 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm rounded-xl font-semibold shadow", servingTeam === "A" ? "bg-[var(--brand-sky)] text-white" : "bg-white text-black hover:bg-white/90"].join(" ")}
+                  >
                     Serve A
                   </button>
-                  <button onClick={() => setServingTeam("B")} className={["px-4 py-2 rounded-xl font-semibold shadow", servingTeam === "B" ? "bg-[var(--brand-sky)] text-white" : "bg-white text-black hover:bg-white/90"].join(" ")}>
+                  <button 
+                    onClick={() => setServingTeam("B")} 
+                    className={["px-3 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm rounded-xl font-semibold shadow", servingTeam === "B" ? "bg-[var(--brand-sky)] text-white" : "bg-white text-black hover:bg-white/90"].join(" ")}
+                  >
                     Serve B
                   </button>
-                  <button onClick={openMatchSummary} disabled={savedSetsCount === 0} className={["px-4 py-2 rounded-xl font-semibold shadow", savedSetsCount > 0 ? "bg-white text-black hover:bg-white/90" : "bg-white/60 text-black/40 cursor-not-allowed"].join(" ")}>
+                  <button 
+                    onClick={openMatchSummary} 
+                    disabled={savedSetsCount === 0} 
+                    className={["px-3 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm rounded-xl font-semibold shadow", savedSetsCount > 0 ? "bg-white text-black hover:bg-white/90" : "bg-white/60 text-black/40 cursor-not-allowed"].join(" ")}
+                  >
                     Match Summary
                   </button>
 
                   {/* Best of 3/5 Selector */}
-                  <div className="flex items-center bg-white rounded-xl shadow border border-gray-200 overflow-hidden ml-2">
+                  <div className="flex items-center bg-white rounded-xl shadow border border-gray-200 overflow-hidden ml-0 sm:ml-2">
                     <button 
                       onClick={() => updateSetRules({ bestOf: 3 })}
-                      className={`px-3 py-2 text-xs font-bold ${setRules.bestOf === 3 ? 'bg-gray-900 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
+                      className={`px-2 py-1.5 sm:px-3 sm:py-2 text-[10px] sm:text-xs font-bold ${setRules.bestOf === 3 ? 'bg-gray-900 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
                     >
                       Best of 3
                     </button>
                     <button 
                       onClick={() => updateSetRules({ bestOf: 5 })}
-                      className={`px-3 py-2 text-xs font-bold ${setRules.bestOf === 5 ? 'bg-gray-900 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
+                      className={`px-2 py-1.5 sm:px-3 sm:py-2 text-[10px] sm:text-xs font-bold ${setRules.bestOf === 5 ? 'bg-gray-900 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
                     >
                       Best of 5
                     </button>
@@ -277,31 +290,26 @@ export default function Home() {
 
                 {/* Center cluster */}
                 <div className="flex flex-col items-center gap-2">
-                  <button onClick={handleReset} className="px-8 py-2 rounded-xl font-extrabold shadow bg-red-500 text-white hover:opacity-90">Reset</button>
-                  <button onClick={undoLastEvent} disabled={!canUndo} className={["px-6 py-2 rounded-xl font-bold shadow", canUndo ? "bg-red-500/70 text-white hover:opacity-90" : "bg-white/30 text-white/50 cursor-not-allowed"].join(" ")}>
+                  <button onClick={handleReset} className="px-6 py-1.5 sm:px-8 sm:py-2 text-xs sm:text-sm rounded-xl font-extrabold shadow bg-red-500 text-white hover:opacity-90">Reset</button>
+                  <button onClick={undoLastEvent} disabled={!canUndo} className={["px-4 py-1.5 sm:px-6 sm:py-2 text-xs sm:text-sm rounded-xl font-bold shadow", canUndo ? "bg-red-500/70 text-white hover:opacity-90" : "bg-white/30 text-white/50 cursor-not-allowed"].join(" ")}>
                     Undo Score
                   </button>
                 </div>
 
                 {/* Right cluster */}
                 <div className="flex gap-2 flex-wrap items-center justify-end">
-                  <button onClick={swapSides} className="px-4 py-2 rounded-xl font-semibold shadow bg-white text-black hover:bg-white/90">Swap</button>
-                  <button onClick={rotateLeftSide} className="px-4 py-2 rounded-xl font-semibold shadow bg-white text-black hover:bg-white/90">Rotate L</button>
-                  <button onClick={rotateRightSide} className="px-4 py-2 rounded-xl font-semibold shadow bg-white text-black hover:bg-white/90">Rotate R</button>
+                  <button onClick={swapSides} className="px-3 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm rounded-xl font-semibold shadow bg-white text-black hover:bg-white/90">Swap</button>
+                  <button onClick={rotateLeftSide} className="px-3 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm rounded-xl font-semibold shadow bg-white text-black hover:bg-white/90">Rotate L</button>
+                  <button onClick={rotateRightSide} className="px-3 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm rounded-xl font-semibold shadow bg-white text-black hover:bg-white/90">Rotate R</button>
                 </div>
               </div>
 
-              {/* Second row (Scores) */}
-              <div className="grid grid-cols-[160px_1fr_160px] gap-3 items-center">
+              {/* Second row (Scores) - Stacks on mobile, Grid on desktop */}
+              <div className="flex flex-col md:grid md:grid-cols-[160px_1fr_160px] gap-3 items-center">
                 
                 {/* Left Side */}
-                <div className="flex flex-col gap-2">
-                  {/* Name Input */}
-                  <div className="rounded-xl bg-white shadow px-4 py-4 text-black font-extrabold text-center">
-                    <input value={leftTeam === "A" ? teamNameA : teamNameB} onChange={(e) => leftTeam === "A" ? setTeamNameA(e.target.value) : setTeamNameB(e.target.value)} className="w-full text-center font-extrabold outline-none" />
-                  </div>
-                  
-                  {/* Timeouts */}
+                <div className="flex flex-col gap-2 w-full md:w-auto">
+                  <input value={leftTeam === "A" ? teamNameA : teamNameB} onChange={(e) => leftTeam === "A" ? setTeamNameA(e.target.value) : setTeamNameB(e.target.value)} className="w-full text-center font-extrabold outline-none bg-white rounded-xl shadow px-4 py-2 sm:px-4 sm:py-4 text-xs sm:text-base text-black" />
                   <div className="flex flex-col items-center gap-2">
                     <TimeoutPips 
                       value={leftTeam === "A" ? timeoutsA : timeoutsB} 
@@ -309,13 +317,12 @@ export default function Home() {
                     />
                     <button 
                       onClick={() => useNextTimeout(leftTeam)}
-                      className="px-3 py-2 rounded-lg bg-white shadow text-xs font-bold text-black hover:bg-red-50 hover:text-red-600 transition"
+                      className="px-3 py-1 sm:px-3 sm:py-2 rounded-lg bg-white shadow text-[10px] sm:text-xs font-bold text-black hover:bg-red-50 hover:text-red-600 transition"
                     >
                       Timeout
                     </button>
                   </div>
-
-                  {/* ✅ Clear Board moved here (above court, below names) */}
+                  {/* Clear Board moved here */}
                   <button onClick={clearLeftSide} className="mt-1 px-3 py-1 text-xs font-bold text-gray-400 hover:text-red-600 self-center transition-colors">
                     Clear Board
                   </button>
@@ -323,29 +330,22 @@ export default function Home() {
 
                 {/* Center Scoreboard */}
                 <div className="flex flex-col items-center gap-3">
-                  <div className="rounded-xl bg-white shadow px-6 py-2 text-black font-extrabold">
+                  <div className="rounded-xl bg-white shadow px-4 py-1 sm:px-6 sm:py-2 text-black font-extrabold text-xs sm:text-base">
                     SET SCORE: <span className="font-black">{setsA}-{setsB}</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <button onClick={() => setSetsA((v) => Math.max(0, v - 1))} className="h-9 w-9 rounded-lg bg-white shadow font-black text-black">−</button>
-                    <button onClick={() => setSetsA((v) => Math.min(5, v + 1))} className="h-9 w-9 rounded-lg bg-white shadow font-black text-black">+</button>
-                    <div className="w-3" />
-                    <button onClick={() => setSetsB((v) => Math.max(0, v - 1))} className="h-9 w-9 rounded-lg bg-white shadow font-black text-black">−</button>
-                    <button onClick={() => setSetsB((v) => Math.min(5, v + 1))} className="h-9 w-9 rounded-lg bg-white shadow font-black text-black">+</button>
+                    <button onClick={() => setSetsA((v) => Math.max(0, v - 1))} className="h-7 w-7 sm:h-9 sm:w-9 rounded-lg bg-white shadow font-black text-black text-xs sm:text-base">−</button>
+                    <button onClick={() => setSetsA((v) => Math.min(5, v + 1))} className="h-7 w-7 sm:h-9 sm:w-9 rounded-lg bg-white shadow font-black text-black text-xs sm:text-base">+</button>
+                    <div className="w-2 sm:w-3" />
+                    <button onClick={() => setSetsB((v) => Math.max(0, v - 1))} className="h-7 w-7 sm:h-9 sm:w-9 rounded-lg bg-white shadow font-black text-black text-xs sm:text-base">−</button>
+                    <button onClick={() => setSetsB((v) => Math.min(5, v + 1))} className="h-7 w-7 sm:h-9 sm:w-9 rounded-lg bg-white shadow font-black text-black text-xs sm:text-base">+</button>
                   </div>
-                  <div className="rounded-xl bg-white shadow px-10 py-2 text-black font-black text-lg">{scoreA} - {scoreB}</div>
-                  
-                  {/* ❌ Auto-fill Starting 6 Removed */}
+                  <div className="rounded-xl bg-white shadow px-6 py-2 sm:px-10 text-black font-black text-xl sm:text-lg">{scoreA} - {scoreB}</div>
                 </div>
 
                 {/* Right Side */}
-                <div className="flex flex-col gap-2">
-                  {/* Name Input */}
-                  <div className="rounded-xl bg-white shadow px-4 py-4 text-black font-extrabold text-center">
-                    <input value={rightTeam === "A" ? teamNameA : teamNameB} onChange={(e) => rightTeam === "A" ? setTeamNameA(e.target.value) : setTeamNameB(e.target.value)} className="w-full text-center font-extrabold outline-none" />
-                  </div>
-
-                  {/* Timeouts */}
+                <div className="flex flex-col gap-2 w-full md:w-auto">
+                  <input value={rightTeam === "A" ? teamNameA : teamNameB} onChange={(e) => rightTeam === "A" ? setTeamNameA(e.target.value) : setTeamNameB(e.target.value)} className="w-full text-center font-extrabold outline-none bg-white rounded-xl shadow px-4 py-2 sm:px-4 sm:py-4 text-xs sm:text-base text-black" />
                   <div className="flex flex-col items-center gap-2">
                     <TimeoutPips 
                       value={rightTeam === "A" ? timeoutsA : timeoutsB} 
@@ -353,24 +353,35 @@ export default function Home() {
                     />
                     <button 
                       onClick={() => useNextTimeout(rightTeam)}
-                      className="px-3 py-2 rounded-lg bg-white shadow text-xs font-bold text-black hover:bg-red-50 hover:text-red-600 transition"
+                      className="px-3 py-1 sm:px-3 sm:py-2 rounded-lg bg-white shadow text-[10px] sm:text-xs font-bold text-black hover:bg-red-50 hover:text-red-600 transition"
                     >
                       Timeout
                     </button>
                   </div>
-
-                  {/* ✅ Clear Board moved here (above court, below names) */}
+                  {/* Clear Board moved here */}
                   <button onClick={clearRightSide} className="mt-1 px-3 py-1 text-xs font-bold text-gray-400 hover:text-red-600 self-center transition-colors">
                     Clear Board
                   </button>
                 </div>
               </div>
 
-              {/* Bench + Court */}
-              <div className="grid grid-cols-[140px_1fr_140px] gap-4 items-start">
-                <BenchRail teamId={leftTeam} />
-                <Court />
-                <BenchRail teamId={rightTeam} />
+              {/* Bench + Court - Stacks on mobile, Grid on desktop */}
+              <div className="flex flex-col lg:grid lg:grid-cols-[140px_1fr_140px] gap-4 items-start">
+                
+                {/* Mobile: Top, Desktop: Left */}
+                <div className="order-1 lg:order-1 flex justify-center w-full lg:w-auto">
+                  <BenchRail teamId={leftTeam} />
+                </div>
+                
+                {/* Mobile: Middle, Desktop: Center */}
+                <div className="order-2 lg:order-2 w-full">
+                  <Court />
+                </div>
+
+                {/* Mobile: Bottom, Desktop: Right */}
+                <div className="order-3 lg:order-3 flex justify-center w-full lg:w-auto">
+                  <BenchRail teamId={rightTeam} />
+                </div>
               </div>
 
               {/* Panels */}
@@ -380,8 +391,8 @@ export default function Home() {
         </main>
       </div>
 
-      {/* 🟢 RIGHT: Action Sidebar */}
-      <div className="w-80 shrink-0 border-l border-black/10 shadow-sm z-10 overflow-hidden bg-white/50 backdrop-blur-sm">
+      {/* 🟢 RIGHT: Action Sidebar (Collapsible on mobile) */}
+      <div className="hidden xl:block w-80 shrink-0 border-l border-black/10 shadow-sm z-10 overflow-hidden bg-white/50 backdrop-blur-sm">
         <ActionSidebar />
       </div>
     </div>
@@ -398,7 +409,7 @@ function TimeoutPips({ value, onToggle }: { value: boolean[]; onToggle: (idx: nu
           type="button"
           onClick={() => onToggle(idx)}
           className={[
-            "h-4 w-4 rounded-sm shadow transition-colors duration-300 hover:scale-110", 
+            "h-3 w-3 sm:h-4 sm:w-4 rounded-sm shadow transition-colors duration-300 hover:scale-110", 
             used ? "bg-red-500" : "bg-white"
           ].join(" ")}
           title={used ? "Timeout used (click to undo)" : "Timeout available (click to use)"}
