@@ -13,7 +13,7 @@ export default function Court() {
   const rightTeam = opponentOf(leftTeam);
 
   return (
-    // ✅ RESPONSIVE: Padding scales from mobile (p-2) to desktop (p-8)
+    // ✅ RESPONSIVE: Reduced padding on mobile (p-2), standard on desktop (md:p-8)
     <div className="w-full max-w-6xl mx-auto aspect-[4/3] rounded-2xl bg-sky-500 p-2 sm:p-4 md:p-8 shadow-sm">
       <div className="relative h-full w-full rounded-xl border-[4px] sm:border-[6px] border-white/90 bg-amber-400">
         <div className="absolute inset-2 sm:inset-4 rounded-lg border-[3px] sm:border-[4px] border-white/90" />
@@ -42,7 +42,7 @@ function TeamHalf({ side, teamId }: { side: "left" | "right"; teamId: TeamId }) 
   const isLeft = side === "left";
   const nearNetFirst = !isLeft;
 
-  // ✅ RESPONSIVE: Gap scales from mobile (gap-2) to desktop (gap-8)
+  // ✅ RESPONSIVE GRID: Smaller gaps on mobile (gap-2) -> larger on desktop (gap-8)
   const BackCol = (
     <div className="grid grid-rows-3 gap-2 sm:gap-4 md:gap-8 place-items-center">
       <CourtSlot teamId={teamId} slot={5} />
@@ -68,9 +68,9 @@ function TeamHalf({ side, teamId }: { side: "left" | "right"; teamId: TeamId }) 
     >
       <div className={[
         "h-full w-full grid grid-cols-2",
-        "gap-2 sm:gap-6 md:gap-10", // Mobile: gap-2, Desktop: gap-10
-        "py-4 sm:py-6 md:py-10",     // Mobile: py-4, Desktop: py-10
-        "px-1 sm:px-4 md:pl-4 md:pr-10" // Mobile: px-1 (tight fit)
+        "gap-2 sm:gap-6 md:gap-10", // Mobile gap-2, Desktop gap-10
+        "py-4 sm:py-6 md:py-10",     // Mobile py-4, Desktop py-10
+        "px-1 sm:px-4 md:pl-4 md:pr-10" // Tighter padding on mobile
       ].join(" ")}>
         {nearNetFirst ? FrontCol : BackCol}
         {nearNetFirst ? BackCol : FrontCol}
@@ -119,9 +119,9 @@ function CourtSlot({ teamId, slot }: { teamId: TeamId; slot: RotationSlot }) {
       ref={setNodeRef}
       className={[
         // ✅ RESPONSIVE SIZING:
-        // Mobile: w-20 h-14
+        // Mobile: w-20 h-14 (Small enough to fit 2 cols on a phone)
         // Tablet: w-28 h-20
-        // Desktop: w-40 h-28 (Original size)
+        // Desktop: w-40 h-28 (Original large size)
         "w-20 h-14 sm:w-28 sm:h-20 md:w-40 md:h-28",
         
         "rounded-lg sm:rounded-xl shadow-sm transition-all px-1 py-1 sm:px-3 sm:py-2 flex flex-col text-left",
