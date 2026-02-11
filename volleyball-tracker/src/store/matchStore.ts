@@ -21,7 +21,6 @@ const emptyCourt = (): CourtState => ({
 
 const opponentOf = (teamId: TeamId): TeamId => (teamId === "A" ? "B" : "A");
 
-// Normalize enums/unions/strings into stable keys
 const normKey = (v: unknown) =>
   String(v)
     .trim()
@@ -29,10 +28,8 @@ const normKey = (v: unknown) =>
     .replace(/[^\w\s-]/g, "")
     .replace(/[\s-]+/g, "_");
 
-// Rotation order used everywhere
 const ROTATION_ORDER: RotationSlot[] = [1, 6, 5, 4, 3, 2];
 
-// Forward rotation = "shift right by 1"
 const rotateCourtForward = (court: CourtState): CourtState => {
   const next: CourtState = { ...court };
   const current = ROTATION_ORDER.map((s) => next[s]);
@@ -43,7 +40,6 @@ const rotateCourtForward = (court: CourtState): CourtState => {
   return next;
 };
 
-// Backward rotation = inverse (shift left by 1)
 const rotateCourtBackward = (court: CourtState): CourtState => {
   const next: CourtState = { ...court };
   const current = ROTATION_ORDER.map((s) => next[s]);
@@ -54,7 +50,6 @@ const rotateCourtBackward = (court: CourtState): CourtState => {
   return next;
 };
 
-/** Court rules helpers */
 const isFrontRowSlot = (slot: RotationSlot) =>
   slot === 2 || slot === 3 || slot === 4;
 const isBackRowSlot = (slot: RotationSlot) =>
@@ -90,15 +85,10 @@ const makeToast = (message: string, type: ToastType = "warn"): ToastState => ({
   type,
 });
 
-/**
- * Libero auto-sub config:
- * - choose a Libero + TWO MBs they replace (alternating)
- * - enabled toggles feature per team
- */
 type LiberoConfig = {
   enabled: boolean;
   liberoId: string | null;
-  mbIds: string[]; // up to 2 MB ids
+  mbIds: string[];
 };
 
 type LiberoSwap = {
@@ -121,14 +111,12 @@ const defaultLiberoSwap = (): LiberoSwap => ({
   replacedMbId: null,
 });
 
-// Slot mapping helper: where does a player move when a FORWARD rotation happens?
 const mapSlotForward = (slot: RotationSlot): RotationSlot => {
   const idx = ROTATION_ORDER.indexOf(slot);
   if (idx < 0) return slot;
   return ROTATION_ORDER[(idx + 1) % ROTATION_ORDER.length];
 };
 
-// For BACKWARD rotation:
 const mapSlotBackward = (slot: RotationSlot): RotationSlot => {
   const idx = ROTATION_ORDER.indexOf(slot);
   if (idx < 0) return slot;
@@ -137,35 +125,6 @@ const mapSlotBackward = (slot: RotationSlot): RotationSlot => {
   ];
 };
 
-/**
- * Merge mbIds by INDEX with existing config, then normalize.
- */
-function mergeMbIdsByIndex(prev: string[], incoming: unknown): string[] {
-  const prevSafe = Array.isArray(prev) ? prev.slice(0, 2) : [];
-  if (!Array.isArray(incoming)) return prevSafe;
-
-  const next = [...prevSafe];
-
-  for (let i = 0; i < Math.min(2, incoming.length); i++) {
-    const v = incoming[i];
-    if (typeof v === "string") {
-      const trimmed = v.trim();
-      if (trimmed.length > 0) next[i] = trimmed;
-    }
-  }
-
-  const out: string[] = [];
-  for (const id of next) {
-    if (!id) continue;
-    if (!out.includes(id)) out.push(id);
-    if (out.length >= 2) break;
-  }
-  return out;
-}
-
-/**
- * Apply/maintain the libero swap for a given team.
- */
 function applyLiberoAutomation(params: {
   teamId: TeamId;
   court: CourtState;
@@ -225,7 +184,6 @@ function applyLiberoAutomation(params: {
     return found ? (Number(found[0]) as RotationSlot) : null;
   };
 
-  // If a rotation happened, tracked swap slot should move too
   if (nextSwap.active && nextSwap.slot && params.rotationMapping) {
     nextSwap.slot =
       params.rotationMapping === "FORWARD"
@@ -233,7 +191,6 @@ function applyLiberoAutomation(params: {
         : mapSlotBackward(nextSwap.slot);
   }
 
-  // ACTIVE SWAP MAINTENANCE
   if (
     nextSwap.active &&
     nextSwap.slot &&
@@ -273,7 +230,6 @@ function applyLiberoAutomation(params: {
     return { court: nextCourt, swap: nextSwap };
   }
 
-  // START NEW SWAP (NOT ACTIVE) — but NOT while this team is serving
   if (params.servingTeam === teamId) {
     return { court: nextCourt, swap: nextSwap };
   }
@@ -336,80 +292,16 @@ function applyLiberoAutomation(params: {
   return { court: nextCourt, swap: nextSwap };
 }
 
-/** ---------- SET SAVING + POG POINTS ---------- */
-
 type RoleKey = "WINGERS" | "MIDDLE_BLOCKER" | "LIBERO" | "SETTER";
 
-const POG_MULTIPLIERS: Record<
-  RoleKey,
-  {
-    SERVE: number;
-    RECEPTION: number;
-    RECEPTION_FAULT: number;
-    DIG: number;
-    DIG_FAULT: number;
-    ATTACK: number;
-    BLOCK: number;
-    SET: number;
-    SET_FAULT: number;
-  }
-> = {
-  WINGERS: {
-    SERVE: 1,
-    RECEPTION: 1,
-    RECEPTION_FAULT: -1,
-    DIG: 1,
-    DIG_FAULT: -1,
-    ATTACK: 1,
-    BLOCK: 1,
-    SET: 0,
-    SET_FAULT: 0,
-  },
-  MIDDLE_BLOCKER: {
-    SERVE: 1,
-    RECEPTION: 0,
-    RECEPTION_FAULT: 0,
-    DIG: 1,
-    DIG_FAULT: -1,
-    ATTACK: 2,
-    BLOCK: 2,
-    SET: 0,
-    SET_FAULT: 0,
-  },
-  LIBERO: {
-    SERVE: 0,
-    RECEPTION: 1.5,
-    RECEPTION_FAULT: -1,
-    DIG: 1,
-    DIG_FAULT: -1,
-    ATTACK: 0,
-    BLOCK: 0,
-    SET: 0.5,
-    SET_FAULT: 0,
-  },
-  SETTER: {
-    SERVE: 1,
-    RECEPTION: 0,
-    RECEPTION_FAULT: 0,
-    DIG: 1,
-    DIG_FAULT: -1,
-    ATTACK: 0.5,
-    BLOCK: 1,
-    SET: 1,
-    SET_FAULT: -1,
-  },
+const POG_MULTIPLIERS: Record<RoleKey, any> = {
+  WINGERS: { SERVE: 1, RECEPTION: 1, RECEPTION_FAULT: -1, DIG: 1, DIG_FAULT: -1, ATTACK: 1, BLOCK: 1, SET: 0, SET_FAULT: 0 },
+  MIDDLE_BLOCKER: { SERVE: 1, RECEPTION: 0, RECEPTION_FAULT: 0, DIG: 1, DIG_FAULT: -1, ATTACK: 2, BLOCK: 2, SET: 0, SET_FAULT: 0 },
+  LIBERO: { SERVE: 0, RECEPTION: 1.5, RECEPTION_FAULT: -1, DIG: 1, DIG_FAULT: -1, ATTACK: 0, BLOCK: 0, SET: 0.5, SET_FAULT: 0 },
+  SETTER: { SERVE: 1, RECEPTION: 0, RECEPTION_FAULT: 0, DIG: 1, DIG_FAULT: -1, ATTACK: 0.5, BLOCK: 1, SET: 1, SET_FAULT: -1 },
 };
 
-type StatKey =
-  | "SERVE"
-  | "RECEPTION"
-  | "RECEPTION_FAULT"
-  | "DIG"
-  | "DIG_FAULT"
-  | "ATTACK"
-  | "BLOCK"
-  | "SET"
-  | "SET_FAULT";
+type StatKey = "SERVE" | "RECEPTION" | "RECEPTION_FAULT" | "DIG" | "DIG_FAULT" | "ATTACK" | "BLOCK" | "SET" | "SET_FAULT";
 
 type PlayerSetStats = {
   counts: Record<StatKey, number>;
@@ -417,45 +309,24 @@ type PlayerSetStats = {
 };
 
 const emptyCounts = (): Record<StatKey, number> => ({
-  SERVE: 0,
-  RECEPTION: 0,
-  RECEPTION_FAULT: 0,
-  DIG: 0,
-  DIG_FAULT: 0,
-  ATTACK: 0,
-  BLOCK: 0,
-  SET: 0,
-  SET_FAULT: 0,
+  SERVE: 0, RECEPTION: 0, RECEPTION_FAULT: 0, DIG: 0, DIG_FAULT: 0, ATTACK: 0, BLOCK: 0, SET: 0, SET_FAULT: 0,
 });
 
 function roleFromPlayer(p: Player | null | undefined): RoleKey {
   const pos = normKey(p?.position ?? "");
-  if (pos === "MB" || pos === "MIDDLE" || pos === "MIDDLE_BLOCKER")
-    return "MIDDLE_BLOCKER";
+  if (pos === "MB" || pos === "MIDDLE" || pos === "MIDDLE_BLOCKER") return "MIDDLE_BLOCKER";
   if (pos === "L" || pos === "LIBERO") return "LIBERO";
   if (pos === "S" || pos === "SETTER") return "SETTER";
   return "WINGERS";
 }
 
-/**
- * Map (skill,outcome) into POG action buckets.
- */
 function classifyForPog(skillKey: string, outcomeKey: string): StatKey | null {
-  const isFault =
-    outcomeKey.includes("FAULT") ||
-    outcomeKey.includes("ERROR") ||
-    outcomeKey === "OUT" ||
-    outcomeKey === "NET";
-
+  const isFault = outcomeKey.includes("FAULT") || outcomeKey.includes("ERROR") || outcomeKey === "OUT" || outcomeKey === "NET";
   const isServe = skillKey.includes("SERVE");
-  const isReceive =
-    skillKey.includes("RECEIVE") ||
-    skillKey.includes("RECEPTION") ||
-    skillKey.includes("PASS");
+  const isReceive = skillKey.includes("RECEIVE") || skillKey.includes("RECEPTION") || skillKey.includes("PASS");
   const isDig = skillKey.includes("DIG");
   const isSet = skillKey.includes("SET");
-  const isAttack =
-    skillKey.includes("ATTACK") || skillKey.includes("SPIKE") || skillKey === "HIT";
+  const isAttack = skillKey.includes("ATTACK") || skillKey.includes("SPIKE") || skillKey === "HIT";
   const isBlock = skillKey.includes("BLOCK");
 
   if (isReceive) return isFault ? "RECEPTION_FAULT" : "RECEPTION";
@@ -464,21 +335,12 @@ function classifyForPog(skillKey: string, outcomeKey: string): StatKey | null {
   if (isServe) return "SERVE";
 
   if (isAttack) {
-    const isKill =
-      outcomeKey.includes("KILL") ||
-      outcomeKey === "SUCCESS" ||
-      outcomeKey === "POINT" ||
-      outcomeKey === "WIN";
+    const isKill = outcomeKey.includes("KILL") || outcomeKey === "SUCCESS" || outcomeKey === "POINT" || outcomeKey === "WIN";
     return isKill ? "ATTACK" : null;
   }
 
   if (isBlock) {
-    const isBlockPoint =
-      outcomeKey.includes("BLOCK_POINT") ||
-      outcomeKey.includes("KILL_BLOCK") ||
-      outcomeKey.includes("STUFF") ||
-      outcomeKey === "POINT" ||
-      outcomeKey === "WIN";
+    const isBlockPoint = outcomeKey.includes("BLOCK_POINT") || outcomeKey.includes("KILL_BLOCK") || outcomeKey.includes("STUFF") || outcomeKey === "POINT" || outcomeKey === "WIN";
     return isBlockPoint ? "BLOCK" : null;
   }
 
@@ -501,22 +363,14 @@ function calcPlayerPogPoints(p: Player, counts: Record<StatKey, number>): number
   );
 }
 
-/** ---------- MATCH TALLY (INDIVIDUAL POINTS + RANKINGS) ---------- */
-
 export type PositionGroup = "OH" | "OPP" | "S" | "L" | "MB" | "OTHER";
 
 export type PlayerMatchStats = {
-  // "Real points" credited when the player's action directly wins a rally
-  // (Kill / Ace / Block point). This is the common volleyball definition of "points".
   points: number;
   kills: number;
   aces: number;
   blockPoints: number;
-
-  // Rally-ending mistakes that give the opponent a point.
   errors: number;
-
-  // UPVVC / POG buckets (already used for POG points)
   counts: Record<StatKey, number>;
   pogPoints: number;
 };
@@ -552,35 +406,11 @@ function emptyMatchStats(): PlayerMatchStats {
   };
 }
 
-// Terminal point classifiers
-const WIN_OUTCOMES = new Set([
-  "SUCCESS",
-  "KILL",
-  "KILL_BLOCK",
-  "ACE",
-  "POINT",
-  "WIN",
-  "STUFF",
-  "BLOCK_POINT",
-]);
-
-const ERROR_OUTCOMES = new Set([
-  "ERROR",
-  "ATTACK_ERROR",
-  "SERVE_ERROR",
-  "SERVICE_ERROR",
-  "BLOCK_ERROR",
-  "RECEIVE_ERROR",
-  "DIG_ERROR",
-  "FAULT",
-  "OUT",
-  "NET",
-]);
+const WIN_OUTCOMES = new Set(["SUCCESS", "KILL", "KILL_BLOCK", "ACE", "POINT", "WIN", "STUFF", "BLOCK_POINT"]);
+const ERROR_OUTCOMES = new Set(["ERROR", "ATTACK_ERROR", "SERVE_ERROR", "SERVICE_ERROR", "BLOCK_ERROR", "RECEIVE_ERROR", "DIG_ERROR", "FAULT", "OUT", "NET"]);
 
 function isPointByPlayer(ev: InternalEvent): boolean {
   if (!ev.pointWinner) return false;
-  // pointWinner is already computed based on (serve/spike/block) outcomes,
-  // so when pointWinner === teamId it's the player's terminal action.
   return ev.pointWinner === ev.teamId;
 }
 
@@ -588,13 +418,7 @@ function isErrorByPlayer(ev: InternalEvent): boolean {
   if (!ev.pointWinner) return false;
   if (ev.pointWinner !== opponentOf(ev.teamId)) return false;
   const ok = ev.outcomeKey;
-  return (
-    ERROR_OUTCOMES.has(ok) ||
-    ok.includes("ERROR") ||
-    ok.includes("FAULT") ||
-    ok === "OUT" ||
-    ok === "NET"
-  );
+  return ERROR_OUTCOMES.has(ok) || ok.includes("ERROR") || ok.includes("FAULT") || ok === "OUT" || ok === "NET";
 }
 
 function computeMatchStatsFromEvents(params: {
@@ -613,31 +437,19 @@ function computeMatchStatsFromEvents(params: {
     const pid = ev.playerId;
     const stats = ensure(pid);
 
-    // POG buckets
     const k = classifyForPog(ev.skillKey, ev.outcomeKey);
     if (k) stats.counts[k] += 1;
 
-    // Individual "points"
     if (isPointByPlayer(ev)) {
       stats.points += 1;
-
       const sk = ev.skillKey;
       const ok = ev.outcomeKey;
-      const isWin =
-        WIN_OUTCOMES.has(ok) ||
-        ok.includes("KILL") ||
-        ok.includes("ACE") ||
-        ok.includes("BLOCK_POINT");
+      const isWin = WIN_OUTCOMES.has(ok) || ok.includes("KILL") || ok.includes("ACE") || ok.includes("BLOCK_POINT");
 
       if (isWin) {
         if (sk.includes("SERVE")) {
           if (ok.includes("ACE")) stats.aces += 1;
-          // if you want "service winner" separate, add another counter
-        } else if (
-          sk.includes("SPIKE") ||
-          sk.includes("ATTACK") ||
-          sk === "HIT"
-        ) {
+        } else if (sk.includes("SPIKE") || sk.includes("ATTACK") || sk === "HIT") {
           stats.kills += 1;
         } else if (sk.includes("BLOCK")) {
           stats.blockPoints += 1;
@@ -645,11 +457,9 @@ function computeMatchStatsFromEvents(params: {
       }
     }
 
-    // Errors that cost a point
     if (isErrorByPlayer(ev)) stats.errors += 1;
   }
 
-  // compute pogPoints after counts are finalized
   for (const [pid, stats] of Object.entries(out)) {
     const p = players.find((x) => x.id === pid);
     if (!p) continue;
@@ -659,15 +469,11 @@ function computeMatchStatsFromEvents(params: {
   return out;
 }
 
-/** ---------- END MATCH TALLY ---------- */
-
-/** ---------- END SET RULES ---------- */
-
 type SetRules = {
   bestOf: 3 | 5;
-  regularPoints: 25;
-  decidingPoints: 15;
-  winBy: 2;
+  regularPoints: number; // ✅ Allows any number
+  decidingPoints: number; // ✅ Allows any number
+  winBy: number; // ✅ Allows any number
   clearCourtsOnSetEnd: boolean;
 };
 
@@ -693,9 +499,6 @@ function hasSetWinner(scoreA: number, scoreB: number, pointsToWin: number, winBy
   return scoreA > scoreB ? ("A" as TeamId) : ("B" as TeamId);
 }
 
-/**
- * Internal event stores enough metadata to UNDO scoring + sideout rotation.
- */
 type InternalEvent = {
   id: string;
   ts: number;
@@ -704,27 +507,19 @@ type InternalEvent = {
   slot: RotationSlot;
   skill: Skill;
   outcome: Outcome;
-
   pointWinner?: TeamId;
-
   prevScoreA: number;
   prevScoreB: number;
   prevServingTeam: TeamId;
-
   prevCourtA: CourtState;
   prevCourtB: CourtState;
-
   prevLiberoSwapA: LiberoSwap;
   prevLiberoSwapB: LiberoSwap;
-
   prevRallyCount: number;
   prevRallyInProgress: boolean;
-
   prevServiceRunTeam: TeamId;
   prevServiceRunCount: number;
-
   didSideoutRotate: boolean;
-
   skillKey: string;
   outcomeKey: string;
 };
@@ -738,95 +533,65 @@ type SavedSet = {
   finalScoreA: number;
   finalScoreB: number;
   events: InternalEvent[];
-  perPlayer: Record<string, PlayerSetStats>; // by playerId
+  perPlayer: Record<string, PlayerSetStats>;
 };
 
 type MatchStore = {
   players: Player[];
-
   courtA: CourtState;
   courtB: CourtState;
-
   leftTeam: TeamId;
   setLeftTeam: (teamId: TeamId) => void;
   swapSides: () => void;
-
-  selected: {
-    teamId: TeamId;
-    slot: RotationSlot;
-    mode?: "default" | "bench";
-  } | null;
+  selected: { teamId: TeamId; slot: RotationSlot; mode?: "default" | "bench" } | null;
   selectSlot: (teamId: TeamId, slot: RotationSlot, mode?: "default" | "bench") => void;
   clearSelection: () => void;
-
   toast: ToastState | null;
   setToast: (message: string, type?: ToastType) => void;
   clearToast: () => void;
-
   liberoConfigA: LiberoConfig;
   liberoConfigB: LiberoConfig;
   setLiberoConfig: (teamId: TeamId, cfg: Partial<LiberoConfig>) => void;
-
   liberoSwapA: LiberoSwap;
   liberoSwapB: LiberoSwap;
-
   rallyCount: number;
   rallyInProgress: boolean;
   serviceRunTeam: TeamId;
   serviceRunCount: number;
-
-  // ✅ SET / MATCH tracking
   setRules: SetRules;
-  setNumber: number; // 1-based
+  setNumber: number;
   setsWonA: number;
   setsWonB: number;
   savedSets: SavedSet[];
-
-  // ✅ New Action to change rules (e.g. Best of 3/5)
   updateSetRules: (rules: Partial<SetRules>) => void;
-
-  // ✅ Derived stats (no extra persistence needed)
   getPlayerMatchStats: (playerId: string) => PlayerMatchStats;
   getAllPlayerMatchStats: () => Record<string, PlayerMatchStats>;
   getRankingsByPosition: () => Record<PositionGroup, RankedPlayer[]>;
-
-  // ✅ Match Summary modal (store-driven)
   matchSummaryOpen: boolean;
   openMatchSummary: () => void;
   closeMatchSummary: () => void;
-
   setPlayers: (players: Player[]) => void;
   addPlayer: (player: Player) => void;
   updatePlayer: (id: string, patch: Partial<Player>) => void;
   removePlayer: (id: string) => void;
-
   assignPlayerToSlot: (teamId: TeamId, slot: RotationSlot, playerId: string) => void;
   substituteInSlot: (teamId: TeamId, slot: RotationSlot, newPlayerId: string) => void;
   clearSlot: (teamId: TeamId, slot: RotationSlot) => void;
-
   getOnCourtPlayerIds: (teamId: TeamId) => string[];
-
   rotateTeam: (teamId: TeamId) => void;
   rotateTeamBackward: (teamId: TeamId) => void;
-
   activeScoresheet: { teamId: TeamId; slot: RotationSlot } | null;
   openScoresheet: (teamId: TeamId, slot: RotationSlot) => void;
   closeScoresheet: () => void;
-
   scoreA: number;
   scoreB: number;
   servingTeam: TeamId;
   setServingTeam: (teamId: TeamId) => void;
-
   events: InternalEvent[];
   logEvent: (input: { teamId: TeamId; slot: RotationSlot; skill: Skill; outcome: Outcome }) => void;
-  
   undoLastEvent: () => void;
-  undoFromEvent: (eventId: string) => void; // ✅ NEW: Undo from specific event
-
-  // ✅ Manual end-set button hook
+  undoFromEvent: (eventId: string) => void;
   endSet: (winner?: TeamId) => void;
-
   resetCourt: (teamId: TeamId) => void;
   resetMatch: () => void;
 };
@@ -859,7 +624,6 @@ export const useMatchStore = create<MatchStore>()(
         return { liberoSwapB: swap };
       };
 
-      // ✅ Build SavedSet from a list of events + final score
       const buildSavedSet = (params: {
         setNumber: number;
         pointsToWin: number;
@@ -901,10 +665,8 @@ export const useMatchStore = create<MatchStore>()(
         };
       };
 
-      // ✅ Reset state at end of set (keep savedSets)
       const resetAfterSet = (state: MatchStore, nextServingTeam: TeamId) => {
         const rules = state.setRules;
-
         const base: Partial<MatchStore> = {
           scoreA: 0,
           scoreB: 0,
@@ -919,12 +681,10 @@ export const useMatchStore = create<MatchStore>()(
           selected: null,
           activeScoresheet: null,
         };
-
         if (rules.clearCourtsOnSetEnd) {
           base.courtA = emptyCourt();
           base.courtB = emptyCourt();
         }
-
         return base;
       };
 
@@ -932,112 +692,82 @@ export const useMatchStore = create<MatchStore>()(
         players: [],
         courtA: emptyCourt(),
         courtB: emptyCourt(),
-
         leftTeam: "A",
         setLeftTeam: (teamId) => set({ leftTeam: teamId }),
         swapSides: () => set((state) => ({ leftTeam: state.leftTeam === "A" ? "B" : "A" })),
-
         selected: null,
         selectSlot: (teamId, slot, mode = "default") => set({ selected: { teamId, slot, mode } }),
         clearSelection: () => set({ selected: null }),
-
         toast: null,
         setToast: (message, type = "warn") => set({ toast: makeToast(message, type) }),
         clearToast: () => set({ toast: null }),
-
         liberoConfigA: defaultLiberoConfig(),
         liberoConfigB: defaultLiberoConfig(),
 
-          setLiberoConfig: (teamId, cfg) =>
-            set((state) => {
-              const prevCfg = teamId === "A" ? state.liberoConfigA : state.liberoConfigB;
-
-              const next: LiberoConfig = {
-                ...prevCfg,
-                ...cfg,
-                // ✅ FIX: Use the new array directly (removed mergeMbIdsByIndex)
-                mbIds: cfg.mbIds !== undefined ? cfg.mbIds : prevCfg.mbIds,
-              };
-
-              // Keep the safety checks
-              next.mbIds = Array.from(new Set((next.mbIds ?? []).filter(Boolean))).slice(0, 2);
-
-              if (teamId === "A") return { ...state, liberoConfigA: next };
-              return { ...state, liberoConfigB: next };
+        setLiberoConfig: (teamId, cfg) =>
+          set((state) => {
+            const prevCfg = teamId === "A" ? state.liberoConfigA : state.liberoConfigB;
+            const next: LiberoConfig = {
+              ...prevCfg,
+              ...cfg,
+              mbIds: cfg.mbIds !== undefined ? cfg.mbIds : prevCfg.mbIds,
+            };
+            next.mbIds = Array.from(new Set((next.mbIds ?? []).filter(Boolean))).slice(0, 2);
+            if (teamId === "A") return { ...state, liberoConfigA: next };
+            return { ...state, liberoConfigB: next };
           }),
 
         liberoSwapA: defaultLiberoSwap(),
         liberoSwapB: defaultLiberoSwap(),
-
         rallyCount: 0,
         rallyInProgress: false,
         serviceRunTeam: "A",
         serviceRunCount: 0,
-
-        // ✅ SET / MATCH tracking defaults
         setRules: defaultSetRules(),
         setNumber: 1,
         setsWonA: 0,
         setsWonB: 0,
         savedSets: [],
+        updateSetRules: (rules) => set((state) => ({ setRules: { ...state.setRules, ...rules } })),
 
-        // ✅ Update rules implementation
-        updateSetRules: (rules) =>
-          set((state) => ({
-            setRules: { ...state.setRules, ...rules },
-          })),
+        getAllPlayerMatchStats: () => {
+          const s = get();
+          const setEvents = (s.savedSets ?? []).flatMap((x) => x.events ?? []);
+          const liveEvents = s.events ?? [];
+          const allEvents = [...setEvents, ...liveEvents];
+          return computeMatchStatsFromEvents({ players: s.players, events: allEvents });
+        },
+        getPlayerMatchStats: (playerId) => {
+          const all = get().getAllPlayerMatchStats();
+          return all[playerId] ?? emptyMatchStats();
+        },
+        getRankingsByPosition: () => {
+          const s = get();
+          const all = s.getAllPlayerMatchStats();
+          const buckets: Record<PositionGroup, RankedPlayer[]> = { OH: [], OPP: [], S: [], L: [], MB: [], OTHER: [] };
+          for (const p of s.players) {
+            const stats = all[p.id] ?? emptyMatchStats();
+            const positionGroup = positionGroupFromPlayer(p);
+            buckets[positionGroup].push({
+              playerId: p.id,
+              name: p.name,
+              teamId: p.teamId,
+              position: String(p.position ?? ""),
+              positionGroup,
+              stats,
+            });
+          }
+          const sortFn = (a: RankedPlayer, b: RankedPlayer) => {
+            if (b.stats.points !== a.stats.points) return b.stats.points - a.stats.points;
+            if (b.stats.pogPoints !== a.stats.pogPoints) return b.stats.pogPoints - a.stats.pogPoints;
+            return a.stats.errors - b.stats.errors;
+          };
+          (Object.keys(buckets) as PositionGroup[]).forEach((k) => {
+            buckets[k].sort(sortFn);
+          });
+          return buckets;
+        },
 
-// ✅ Derived stats (match-level): points + POG + rankings
-getAllPlayerMatchStats: () => {
-  const s = get();
-  const setEvents = (s.savedSets ?? []).flatMap((x) => x.events ?? []);
-  const liveEvents = s.events ?? [];
-  const allEvents = [...setEvents, ...liveEvents];
-  return computeMatchStatsFromEvents({ players: s.players, events: allEvents });
-},
-getPlayerMatchStats: (playerId) => {
-  const all = get().getAllPlayerMatchStats();
-  return all[playerId] ?? emptyMatchStats();
-},
-getRankingsByPosition: () => {
-  const s = get();
-  const all = s.getAllPlayerMatchStats();
-
-  const buckets: Record<PositionGroup, RankedPlayer[]> = {
-    OH: [],
-    OPP: [],
-    S: [],
-    L: [],
-    MB: [],
-    OTHER: [],
-  };
-
-  for (const p of s.players) {
-    const stats = all[p.id] ?? emptyMatchStats();
-    const positionGroup = positionGroupFromPlayer(p);
-    buckets[positionGroup].push({
-      playerId: p.id,
-      name: p.name,
-      teamId: p.teamId,
-      position: String(p.position ?? ""),
-      positionGroup,
-      stats,
-    });
-  }
-
-  const sortFn = (a: RankedPlayer, b: RankedPlayer) => {
-    if (b.stats.points !== a.stats.points) return b.stats.points - a.stats.points;
-    if (b.stats.pogPoints !== a.stats.pogPoints) return b.stats.pogPoints - a.stats.pogPoints;
-    return a.stats.errors - b.stats.errors;
-  };
-
-  (Object.keys(buckets) as PositionGroup[]).forEach((k) => {
-    buckets[k].sort(sortFn);
-  });
-
-  return buckets;
-},
-        // ✅ Match Summary modal
         matchSummaryOpen: false,
         openMatchSummary: () => set({ matchSummaryOpen: true }),
         closeMatchSummary: () => set({ matchSummaryOpen: false }),
@@ -1048,51 +778,46 @@ getRankingsByPosition: () => {
           set((state) => ({
             players: state.players.map((p) => (p.id === id ? { ...p, ...patch } : p)),
           })),
-        removePlayer: (id) => set((state) => ({ players: state.players.filter((p) => p.id !== id) })),
+
+        // ✅ FIXED: removePlayer now properly cleans up configs
+        removePlayer: (id) =>
+          set((state) => {
+            const nextPlayers = state.players.filter((p) => p.id !== id);
+
+            const cfgA = { ...state.liberoConfigA };
+            if (cfgA.liberoId === id) cfgA.liberoId = null;
+            cfgA.mbIds = (cfgA.mbIds ?? []).filter((mbId) => mbId !== id);
+
+            const cfgB = { ...state.liberoConfigB };
+            if (cfgB.liberoId === id) cfgB.liberoId = null;
+            cfgB.mbIds = (cfgB.mbIds ?? []).filter((mbId) => mbId !== id);
+
+            return {
+              players: nextPlayers,
+              liberoConfigA: cfgA,
+              liberoConfigB: cfgB,
+            };
+          }),
 
         assignPlayerToSlot: (teamId, slot, playerId) =>
           set((state) => {
             const key: "courtA" | "courtB" = teamId === "A" ? "courtA" : "courtB";
             const court: CourtState = { ...state[key] };
-
             if (Object.values(court).includes(playerId)) {
               return { ...state, toast: makeToast("That player is already on the court.", "info") };
             }
-
             const p = state.players.find((x) => x.id === playerId) || null;
             if (p && isLiberoPlayer(p) && isFrontRowSlot(slot)) {
-              return {
-                ...state,
-                toast: makeToast("Illegal assignment: Libero cannot be placed in the front row.", "error"),
-              };
+              return { ...state, toast: makeToast("Illegal assignment: Libero cannot be placed in the front row.", "error") };
             }
-
             court[slot] = playerId;
-
             if (hasIllegalLiberoFrontRow(court, state.players)) {
-              return {
-                ...state,
-                toast: makeToast("Illegal state prevented: Libero cannot be in the front row.", "error"),
-              };
+              return { ...state, toast: makeToast("Illegal state prevented: Libero cannot be in the front row.", "error") };
             }
-
             const cfg = getConfig(state, teamId);
             const swap = getSwap(state, teamId);
-
-            const applied = applyLiberoAutomation({
-              teamId,
-              court,
-              players: state.players,
-              config: cfg,
-              swap,
-              servingTeam: state.servingTeam,
-            });
-
-            const next: any = {
-              ...state,
-              [key]: applied.court,
-              ...setSwapPatch(teamId, applied.swap),
-            };
+            const applied = applyLiberoAutomation({ teamId, court, players: state.players, config: cfg, swap, servingTeam: state.servingTeam });
+            const next: any = { ...state, [key]: applied.court, ...setSwapPatch(teamId, applied.swap) };
             if (applied.toast) next.toast = applied.toast;
             return next;
           }),
@@ -1119,9 +844,7 @@ getRankingsByPosition: () => {
           set((state) => {
             const key: "courtA" | "courtB" = teamId === "A" ? "courtA" : "courtB";
             const court = teamId === "A" ? state.courtA : state.courtB;
-
             const rotated = rotateForwardForTeam(teamId, court);
-
             const cfg = getConfig(state, teamId);
             const swap = getSwap(state, teamId);
             const applied = applyLiberoAutomation({
@@ -1133,19 +856,10 @@ getRankingsByPosition: () => {
               rotationMapping: rotationMappingForForward(teamId),
               servingTeam: state.servingTeam,
             });
-
             if (hasIllegalLiberoFrontRow(applied.court, state.players)) {
-              return {
-                ...state,
-                toast: makeToast("Illegal rotation: Libero cannot rotate into the front row.", "error"),
-              };
+              return { ...state, toast: makeToast("Illegal rotation: Libero cannot rotate into the front row.", "error") };
             }
-
-            const next: any = {
-              ...state,
-              [key]: applied.court,
-              ...setSwapPatch(teamId, applied.swap),
-            };
+            const next: any = { ...state, [key]: applied.court, ...setSwapPatch(teamId, applied.swap) };
             if (applied.toast) next.toast = applied.toast;
             return next;
           }),
@@ -1154,9 +868,7 @@ getRankingsByPosition: () => {
           set((state) => {
             const key: "courtA" | "courtB" = teamId === "A" ? "courtA" : "courtB";
             const court = teamId === "A" ? state.courtA : state.courtB;
-
             const rotated = rotateBackwardForTeam(teamId, court);
-
             const cfg = getConfig(state, teamId);
             const swap = getSwap(state, teamId);
             const applied = applyLiberoAutomation({
@@ -1168,19 +880,10 @@ getRankingsByPosition: () => {
               rotationMapping: rotationMappingForBackward(teamId),
               servingTeam: state.servingTeam,
             });
-
             if (hasIllegalLiberoFrontRow(applied.court, state.players)) {
-              return {
-                ...state,
-                toast: makeToast("Illegal rotation: Libero cannot rotate into the front row.", "error"),
-              };
+              return { ...state, toast: makeToast("Illegal rotation: Libero cannot rotate into the front row.", "error") };
             }
-
-            const next: any = {
-              ...state,
-              [key]: applied.court,
-              ...setSwapPatch(teamId, applied.swap),
-            };
+            const next: any = { ...state, [key]: applied.court, ...setSwapPatch(teamId, applied.swap) };
             if (applied.toast) next.toast = applied.toast;
             return next;
           }),
@@ -1192,56 +895,30 @@ getRankingsByPosition: () => {
         scoreA: 0,
         scoreB: 0,
         servingTeam: "A",
-        setServingTeam: (teamId) =>
-          set(() => ({
-            servingTeam: teamId,
-            serviceRunTeam: teamId,
-            serviceRunCount: 0,
-            rallyInProgress: false,
-          })),
-
+        setServingTeam: (teamId) => set(() => ({ servingTeam: teamId, serviceRunTeam: teamId, serviceRunCount: 0, rallyInProgress: false })),
         events: [],
 
-        // ✅ Manual end-set (button)
         endSet: (winner) =>
           set((state) => {
             const rules = state.setRules;
-            const pointsToWin = pointsToWinForSet(
-              rules,
-              state.setNumber,
-              state.setsWonA,
-              state.setsWonB
-            );
-
-            const computedWinner =
-              winner ?? hasSetWinner(state.scoreA, state.scoreB, pointsToWin, rules.winBy);
-
+            const pointsToWin = pointsToWinForSet(rules, state.setNumber, state.setsWonA, state.setsWonB);
+            const computedWinner = winner ?? hasSetWinner(state.scoreA, state.scoreB, pointsToWin, rules.winBy);
             if (!computedWinner) {
-              return {
-                ...state,
-                toast: makeToast(
-                  "Cannot end set: no winner yet (needs target points AND 2-point lead).",
-                  "warn"
-                ),
-              };
+              return { ...state, toast: makeToast("Cannot end set: no winner yet (needs target points AND 2-point lead).", "warn") };
             }
-
             const saved = buildSavedSet({
               setNumber: state.setNumber,
               pointsToWin,
               winner: computedWinner,
               finalScoreA: state.scoreA,
               finalScoreB: state.scoreB,
-              events: state.events.slice().reverse(), // chronological
+              events: state.events.slice().reverse(),
               players: state.players,
             });
-
             const nextSetsWonA = computedWinner === "A" ? state.setsWonA + 1 : state.setsWonA;
             const nextSetsWonB = computedWinner === "B" ? state.setsWonB + 1 : state.setsWonB;
-
-            const nextServing = computedWinner; // simple default
+            const nextServing = computedWinner;
             const after = resetAfterSet(state, nextServing);
-
             return {
               ...state,
               savedSets: [saved, ...state.savedSets],
@@ -1258,107 +935,52 @@ getRankingsByPosition: () => {
             const court = teamId === "A" ? state.courtA : state.courtB;
             const playerId = court[slot];
             if (!playerId) return state;
-
             const skillKey = normKey(skill);
             const outcomeKey = normKey(outcome);
-
             if (skillKey.includes("BLOCK") && isBackRowSlot(slot)) {
               return { ...state, toast: makeToast("Illegal action: Back-row players cannot block.", "error") };
             }
-
             let nextRallyInProgress = state.rallyInProgress;
             if (!nextRallyInProgress && skillKey.includes("SERVE")) nextRallyInProgress = true;
-
             let pointWinner: TeamId | undefined;
-
-            const ERROR_OUTCOMES = new Set([
-              "ERROR",
-              "ATTACK_ERROR",
-              "SERVE_ERROR",
-              "SERVICE_ERROR",
-              "BLOCK_ERROR",
-              "RECEIVE_ERROR",
-              "DIG_ERROR",
-              "FAULT",
-              "OUT",
-              "NET",
-            ]);
-
-            const isError =
-              ERROR_OUTCOMES.has(outcomeKey) ||
-              outcomeKey.includes("ERROR") ||
-              outcomeKey.includes("FAULT");
-
+            const isError = ERROR_OUTCOMES.has(outcomeKey) || outcomeKey.includes("ERROR") || outcomeKey.includes("FAULT");
             if (isError) {
               pointWinner = opponentOf(teamId);
             } else {
-              const WIN_OUTCOMES = new Set([
-                "SUCCESS",
-                "KILL",
-                "KILL_BLOCK",
-                "ACE",
-                "POINT",
-                "WIN",
-                "STUFF",
-                "BLOCK_POINT",
-              ]);
-
-              const isWin =
-                WIN_OUTCOMES.has(outcomeKey) ||
-                outcomeKey.includes("KILL") ||
-                outcomeKey.includes("ACE");
-
+              const isWin = WIN_OUTCOMES.has(outcomeKey) || outcomeKey.includes("KILL") || outcomeKey.includes("ACE");
               const isServe = skillKey.includes("SERVE");
-              const isSpike =
-                skillKey.includes("SPIKE") || skillKey.includes("ATTACK") || skillKey === "HIT";
+              const isSpike = skillKey.includes("SPIKE") || skillKey.includes("ATTACK") || skillKey === "HIT";
               const isBlock = skillKey.includes("BLOCK");
-
               if ((isServe || isSpike || isBlock) && isWin) {
                 pointWinner = teamId;
               }
             }
-
-            // snapshot BEFORE changes (undo)
             const prevScoreA = state.scoreA;
             const prevScoreB = state.scoreB;
             const prevServingTeam = state.servingTeam;
-
             const prevCourtA = state.courtA;
             const prevCourtB = state.courtB;
-
             const prevLiberoSwapA = state.liberoSwapA;
             const prevLiberoSwapB = state.liberoSwapB;
-
             const prevRallyCount = state.rallyCount;
             const prevRallyInProgress = state.rallyInProgress;
-
             const prevServiceRunTeam = state.serviceRunTeam;
             const prevServiceRunCount = state.serviceRunCount;
-
             let nextScoreA = state.scoreA;
             let nextScoreB = state.scoreB;
             let nextServingTeam = state.servingTeam;
-
             let nextCourtA = state.courtA;
             let nextCourtB = state.courtB;
-
             let didSideoutRotate = false;
-
             let nextServiceRunTeam = state.serviceRunTeam;
             let nextServiceRunCount = state.serviceRunCount;
-
             let nextRallyCount = state.rallyCount;
             let nextToast: ToastState | null = null;
-
             let swapPatch: Partial<Pick<MatchStore, "liberoSwapA" | "liberoSwapB">> = {};
-
             if (pointWinner) {
               nextRallyCount += 1;
               nextRallyInProgress = false;
-
-              if (pointWinner === "A") nextScoreA += 1;
-              else nextScoreB += 1;
-
+              if (pointWinner === "A") nextScoreA += 1; else nextScoreB += 1;
               if (pointWinner === prevServingTeam) {
                 nextServiceRunTeam = prevServingTeam;
                 nextServiceRunCount = Math.max(0, state.serviceRunCount) + 1;
@@ -1366,29 +988,14 @@ getRankingsByPosition: () => {
                 nextServiceRunTeam = pointWinner;
                 nextServiceRunCount = 1;
               }
-
-              // side-out (winner wasn't serving)
               if (pointWinner !== prevServingTeam) {
                 nextServingTeam = pointWinner;
-
                 if (pointWinner === "A") {
                   const rotated = rotateForwardForTeam("A", state.courtA);
-                  const applied = applyLiberoAutomation({
-                    teamId: "A",
-                    court: rotated,
-                    players: state.players,
-                    config: state.liberoConfigA,
-                    swap: state.liberoSwapA,
-                    rotationMapping: rotationMappingForForward("A"),
-                    servingTeam: nextServingTeam,
-                  });
-
+                  const applied = applyLiberoAutomation({ teamId: "A", court: rotated, players: state.players, config: state.liberoConfigA, swap: state.liberoSwapA, rotationMapping: rotationMappingForForward("A"), servingTeam: nextServingTeam });
                   if (hasIllegalLiberoFrontRow(applied.court, state.players)) {
                     nextCourtA = state.courtA;
-                    nextToast = makeToast(
-                      "Side-out rotation blocked: Libero cannot rotate into the front row.",
-                      "warn"
-                    );
+                    nextToast = makeToast("Side-out rotation blocked: Libero cannot rotate into the front row.", "warn");
                   } else {
                     didSideoutRotate = true;
                     nextCourtA = applied.court;
@@ -1397,22 +1004,10 @@ getRankingsByPosition: () => {
                   }
                 } else {
                   const rotated = rotateForwardForTeam("B", state.courtB);
-                  const applied = applyLiberoAutomation({
-                    teamId: "B",
-                    court: rotated,
-                    players: state.players,
-                    config: state.liberoConfigB,
-                    swap: state.liberoSwapB,
-                    rotationMapping: rotationMappingForForward("B"),
-                    servingTeam: nextServingTeam,
-                  });
-
+                  const applied = applyLiberoAutomation({ teamId: "B", court: rotated, players: state.players, config: state.liberoConfigB, swap: state.liberoSwapB, rotationMapping: rotationMappingForForward("B"), servingTeam: nextServingTeam });
                   if (hasIllegalLiberoFrontRow(applied.court, state.players)) {
                     nextCourtB = state.courtB;
-                    nextToast = makeToast(
-                      "Side-out rotation blocked: Libero cannot rotate into the front row.",
-                      "warn"
-                    );
+                    nextToast = makeToast("Side-out rotation blocked: Libero cannot rotate into the front row.", "warn");
                   } else {
                     didSideoutRotate = true;
                     nextCourtB = applied.court;
@@ -1421,116 +1016,43 @@ getRankingsByPosition: () => {
                   }
                 }
               }
-
-              // dead-ball automation for BOTH teams after point
-              const appliedA = applyLiberoAutomation({
-                teamId: "A",
-                court: nextCourtA,
-                players: state.players,
-                config: state.liberoConfigA,
-                swap: (swapPatch as any).liberoSwapA ?? state.liberoSwapA,
-                servingTeam: nextServingTeam,
-              });
+              const appliedA = applyLiberoAutomation({ teamId: "A", court: nextCourtA, players: state.players, config: state.liberoConfigA, swap: (swapPatch as any).liberoSwapA ?? state.liberoSwapA, servingTeam: nextServingTeam });
               if (!hasIllegalLiberoFrontRow(appliedA.court, state.players)) {
                 nextCourtA = appliedA.court;
                 swapPatch = { ...swapPatch, ...setSwapPatch("A", appliedA.swap) };
                 if (appliedA.toast) nextToast = appliedA.toast;
               }
-
-              const appliedB = applyLiberoAutomation({
-                teamId: "B",
-                court: nextCourtB,
-                players: state.players,
-                config: state.liberoConfigB,
-                swap: (swapPatch as any).liberoSwapB ?? state.liberoSwapB,
-                servingTeam: nextServingTeam,
-              });
+              const appliedB = applyLiberoAutomation({ teamId: "B", court: nextCourtB, players: state.players, config: state.liberoConfigB, swap: (swapPatch as any).liberoSwapB ?? state.liberoSwapB, servingTeam: nextServingTeam });
               if (!hasIllegalLiberoFrontRow(appliedB.court, state.players)) {
                 nextCourtB = appliedB.court;
                 swapPatch = { ...swapPatch, ...setSwapPatch("B", appliedB.swap) };
                 if (appliedB.toast) nextToast = appliedB.toast;
               }
             }
-
             const e: InternalEvent = {
-              id: crypto.randomUUID(),
-              ts: Date.now(),
-              teamId,
-              playerId,
-              slot,
-              skill,
-              outcome,
-              pointWinner,
-
-              prevScoreA,
-              prevScoreB,
-              prevServingTeam,
-
-              prevCourtA,
-              prevCourtB,
-
-              prevLiberoSwapA,
-              prevLiberoSwapB,
-
-              prevRallyCount,
-              prevRallyInProgress,
-
-              prevServiceRunTeam,
-              prevServiceRunCount,
-
-              didSideoutRotate,
-
-              skillKey,
-              outcomeKey,
+              id: crypto.randomUUID(), ts: Date.now(), teamId, playerId, slot, skill, outcome, pointWinner,
+              prevScoreA, prevScoreB, prevServingTeam, prevCourtA, prevCourtB, prevLiberoSwapA, prevLiberoSwapB,
+              prevRallyCount, prevRallyInProgress, prevServiceRunTeam, prevServiceRunCount, didSideoutRotate, skillKey, outcomeKey,
             };
-
-            // ✅ compute set end AFTER scores update (deuce win-by-2)
             const rules = state.setRules;
             const pointsToWin = pointsToWinForSet(rules, state.setNumber, state.setsWonA, state.setsWonB);
             const autoWinner = hasSetWinner(nextScoreA, nextScoreB, pointsToWin, rules.winBy);
-
             const baseNext = {
-              ...state,
-              scoreA: nextScoreA,
-              scoreB: nextScoreB,
-              servingTeam: nextServingTeam,
-              courtA: nextCourtA,
-              courtB: nextCourtB,
-              rallyCount: nextRallyCount,
-              rallyInProgress: nextRallyInProgress,
-              serviceRunTeam: nextServiceRunTeam,
-              serviceRunCount: nextServiceRunCount,
-              events: [e, ...state.events],
-              ...(swapPatch as any),
-              toast: nextToast ?? state.toast,
+              ...state, scoreA: nextScoreA, scoreB: nextScoreB, servingTeam: nextServingTeam, courtA: nextCourtA, courtB: nextCourtB,
+              rallyCount: nextRallyCount, rallyInProgress: nextRallyInProgress, serviceRunTeam: nextServiceRunTeam, serviceRunCount: nextServiceRunCount,
+              events: [e, ...state.events], ...(swapPatch as any), toast: nextToast ?? state.toast,
             };
-
             if (!autoWinner) return baseNext;
-
-            // ✅ AUTO-SAVE + RESET SET
             const saved = buildSavedSet({
-              setNumber: state.setNumber,
-              pointsToWin,
-              winner: autoWinner,
-              finalScoreA: nextScoreA,
-              finalScoreB: nextScoreB,
-              events: [...baseNext.events].slice().reverse(), // chronological
-              players: state.players,
+              setNumber: state.setNumber, pointsToWin, winner: autoWinner, finalScoreA: nextScoreA, finalScoreB: nextScoreB,
+              events: [...baseNext.events].slice().reverse(), players: state.players,
             });
-
             const nextSetsWonA = autoWinner === "A" ? state.setsWonA + 1 : state.setsWonA;
             const nextSetsWonB = autoWinner === "B" ? state.setsWonB + 1 : state.setsWonB;
-
             const after = resetAfterSet(baseNext as any, autoWinner);
-
             return {
-              ...(baseNext as any),
-              savedSets: [saved, ...state.savedSets],
-              setsWonA: nextSetsWonA,
-              setsWonB: nextSetsWonB,
-              setNumber: state.setNumber + 1,
-              ...(after as any),
-              toast: makeToast(`Set ${state.setNumber} auto-saved. Winner: Team ${autoWinner}.`, "info"),
+              ...(baseNext as any), savedSets: [saved, ...state.savedSets], setsWonA: nextSetsWonA, setsWonB: nextSetsWonB,
+              setNumber: state.setNumber + 1, ...(after as any), toast: makeToast(`Set ${state.setNumber} auto-saved. Winner: Team ${autoWinner}.`, "info"),
             };
           }),
 
@@ -1538,62 +1060,23 @@ getRankingsByPosition: () => {
           set((state) => {
             if (state.events.length === 0) return state;
             const [last, ...rest] = state.events;
-
             return {
-              ...state,
-              scoreA: last.prevScoreA,
-              scoreB: last.prevScoreB,
-              servingTeam: last.prevServingTeam,
-
-              courtA: last.prevCourtA,
-              courtB: last.prevCourtB,
-
-              liberoSwapA: last.prevLiberoSwapA,
-              liberoSwapB: last.prevLiberoSwapB,
-
-              rallyCount: last.prevRallyCount,
-              rallyInProgress: last.prevRallyInProgress,
-              serviceRunTeam: last.prevServiceRunTeam,
-              serviceRunCount: last.prevServiceRunCount,
-
-              events: rest,
-              toast: makeToast("Undid last score/event.", "info"),
+              ...state, scoreA: last.prevScoreA, scoreB: last.prevScoreB, servingTeam: last.prevServingTeam, courtA: last.prevCourtA, courtB: last.prevCourtB,
+              liberoSwapA: last.prevLiberoSwapA, liberoSwapB: last.prevLiberoSwapB, rallyCount: last.prevRallyCount, rallyInProgress: last.prevRallyInProgress,
+              serviceRunTeam: last.prevServiceRunTeam, serviceRunCount: last.prevServiceRunCount, events: rest, toast: makeToast("Undid last score/event.", "info"),
             };
           }),
 
-        // ✅ NEW: Undo from specific event
         undoFromEvent: (eventId: string) =>
           set((state) => {
             const index = state.events.findIndex((e) => e.id === eventId);
             if (index === -1) return state;
-
-            // The target event is at 'index'. 
-            // We want to revert to the state stored in its 'prev...' fields.
             const target = state.events[index];
-
-            // Events newer than this (0 to index) will be discarded.
-            // Events older than this (index+1 to end) will be kept.
             const remainingEvents = state.events.slice(index + 1);
-
             return {
-              ...state,
-              scoreA: target.prevScoreA,
-              scoreB: target.prevScoreB,
-              servingTeam: target.prevServingTeam,
-
-              courtA: target.prevCourtA,
-              courtB: target.prevCourtB,
-
-              liberoSwapA: target.prevLiberoSwapA,
-              liberoSwapB: target.prevLiberoSwapB,
-
-              rallyCount: target.prevRallyCount,
-              rallyInProgress: target.prevRallyInProgress,
-              serviceRunTeam: target.prevServiceRunTeam,
-              serviceRunCount: target.prevServiceRunCount,
-
-              events: remainingEvents,
-              toast: makeToast("Reverted state to before selected event.", "info"),
+              ...state, scoreA: target.prevScoreA, scoreB: target.prevScoreB, servingTeam: target.prevServingTeam, courtA: target.prevCourtA, courtB: target.prevCourtB,
+              liberoSwapA: target.prevLiberoSwapA, liberoSwapB: target.prevLiberoSwapB, rallyCount: target.prevRallyCount, rallyInProgress: target.prevRallyInProgress,
+              serviceRunTeam: target.prevServiceRunTeam, serviceRunCount: target.prevServiceRunCount, events: remainingEvents, toast: makeToast("Reverted state to before selected event.", "info"),
             };
           }),
 
@@ -1605,65 +1088,59 @@ getRankingsByPosition: () => {
 
         resetMatch: () =>
           set((state) => ({
-            ...state,
-            courtA: emptyCourt(),
-            courtB: emptyCourt(),
-            selected: null,
-            activeScoresheet: null,
-            events: [],
-            scoreA: 0,
-            scoreB: 0,
-            servingTeam: "A",
-            toast: null,
-            rallyCount: 0,
-            rallyInProgress: false,
-            serviceRunTeam: "A",
-            serviceRunCount: 0,
-            liberoSwapA: defaultLiberoSwap(),
-            liberoSwapB: defaultLiberoSwap(),
-
-            // ✅ match-level reset
-            setNumber: 1,
-            setsWonA: 0,
-            setsWonB: 0,
-            savedSets: [],
-            setRules: defaultSetRules(),
-
-            // ✅ close modal and clear summary
-            matchSummaryOpen: false,
+            ...state, courtA: emptyCourt(), courtB: emptyCourt(), selected: null, activeScoresheet: null, events: [], scoreA: 0, scoreB: 0, servingTeam: "A",
+            toast: null, rallyCount: 0, rallyInProgress: false, serviceRunTeam: "A", serviceRunCount: 0, liberoSwapA: defaultLiberoSwap(), liberoSwapB: defaultLiberoSwap(),
+            setNumber: 1, setsWonA: 0, setsWonB: 0, savedSets: [], setRules: defaultSetRules(), matchSummaryOpen: false,
           })),
       };
     },
     {
       name: "vb-match-store",
-      version: 5, // bump because we added matchSummaryOpen + cleaned code
+      version: 6, // ✅ BUMPED TO V6 TO FORCE MIGRATION
+      
+      // ✅ SELF-HEALING MIGRATION: Auto-deletes "ghost" players from Libero configs
       migrate: (persisted: any) => {
         const state = persisted?.state ?? persisted ?? {};
+        
+        // Get set of all currently valid player IDs
+        const players = Array.isArray(state.players) ? state.players : [];
+        const validPlayerIds = new Set(players.map((p: any) => p.id));
+
+        // Helper to remove invalid IDs from an array
+        const cleanMbIds = (ids: any) => {
+          if (!Array.isArray(ids)) return [];
+          return ids.filter((id) => validPlayerIds.has(id));
+        };
+
+        // Helper to remove invalid ID from a single field
+        const cleanLiberoId = (id: any) => {
+          return validPlayerIds.has(id) ? id : null;
+        };
+
         return {
           ...state,
           liberoConfigA: {
             ...defaultLiberoConfig(),
             ...(state.liberoConfigA ?? {}),
-            mbIds: Array.isArray(state?.liberoConfigA?.mbIds) ? state.liberoConfigA.mbIds : [],
+            liberoId: cleanLiberoId(state.liberoConfigA?.liberoId),
+            mbIds: cleanMbIds(state.liberoConfigA?.mbIds), // ✅ Removed ghosts
           },
           liberoConfigB: {
             ...defaultLiberoConfig(),
             ...(state.liberoConfigB ?? {}),
-            mbIds: Array.isArray(state?.liberoConfigB?.mbIds) ? state.liberoConfigB.mbIds : [],
+            liberoId: cleanLiberoId(state.liberoConfigB?.liberoId),
+            mbIds: cleanMbIds(state.liberoConfigB?.mbIds), // ✅ Removed ghosts
           },
-          setRules: {
-            ...defaultSetRules(),
-            ...(state.setRules ?? {}),
-          },
+          // Standard defaults for other fields
+          setRules: { ...defaultSetRules(), ...(state.setRules ?? {}) },
           setNumber: typeof state.setNumber === "number" ? state.setNumber : 1,
           setsWonA: typeof state.setsWonA === "number" ? state.setsWonA : 0,
           setsWonB: typeof state.setsWonB === "number" ? state.setsWonB : 0,
           savedSets: Array.isArray(state.savedSets) ? state.savedSets : [],
-
-          // modal should default closed even if older state exists
           matchSummaryOpen: false,
         };
       },
+      
       partialize: (state) => ({
         players: state.players,
         courtA: state.courtA,
@@ -1679,11 +1156,8 @@ getRankingsByPosition: () => {
         rallyInProgress: state.rallyInProgress,
         serviceRunTeam: state.serviceRunTeam,
         serviceRunCount: state.serviceRunCount,
-
-        // ✅ FIXED PERSISTENCE
         liberoSwapA: state.liberoSwapA,
         liberoSwapB: state.liberoSwapB,
-
         setRules: state.setRules,
         setNumber: state.setNumber,
         setsWonA: state.setsWonA,
