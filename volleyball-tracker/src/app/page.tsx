@@ -6,6 +6,7 @@ import BenchRail from "@/components/Court/Bench/BenchRail";
 import MatchSummaryModal from "@/components/MatchSummary/MatchSummaryModal";
 import EventLogRail from "@/components/EventLogRail";
 import ActionSidebar from "@/components/ActionSidebar";
+import ScoresheetPanel from "@/components/Court/Scoresheet/ScoresheetPanel";
 
 import { useMemo, useState, useCallback, useEffect, useRef } from "react";
 import { useMatchStore } from "@/store/matchStore";
@@ -25,27 +26,38 @@ const opponentOf = (teamId: "A" | "B") => (teamId === "A" ? "B" : "A");
 
 export default function Home() {
   const router = useRouter();
+  
+  // -- Store Selectors --
   const players = useMatchStore((s) => s.players);
   const assign = useMatchStore((s) => s.assignPlayerToSlot);
-  const resetCourt = useMatchStore((s) => s.resetCourt);
   const resetMatch = useMatchStore((s) => s.resetMatch);
   const undoLastEvent = useMatchStore((s) => s.undoLastEvent);
   const canUndo = useMatchStore((s) => (s.events?.length ?? 0) > 0);
+  
+  // Navigation & Layout Actions
   const rotateTeam = useMatchStore((s) => s.rotateTeam);
+  const resetCourt = useMatchStore((s) => s.resetCourt);
+  const swapSides = useMatchStore((s) => s.swapSides);
+  
+  // Game State
   const servingTeam = useMatchStore((s) => s.servingTeam);
   const setServingTeam = useMatchStore((s) => s.setServingTeam);
   const leftTeam = useMatchStore((s) => s.leftTeam);
-  const swapSides = useMatchStore((s) => s.swapSides);
   const rightTeam = opponentOf(leftTeam);
   const scoreA = useMatchStore((s) => s.scoreA);
   const scoreB = useMatchStore((s) => s.scoreB);
-  
+  const setsWonA = useMatchStore((s) => s.setsWonA);
+  const setsWonB = useMatchStore((s) => s.setsWonB);
+  const setNumber = useMatchStore((s) => s.setNumber);
+
   // Rules
   const setRules = useMatchStore((s) => s.setRules);
   const updateSetRules = useMatchStore((s) => s.updateSetRules);
-  const setNumber = useMatchStore((s) => s.setNumber);
-  const setsWonA = useMatchStore((s) => s.setsWonA);
-  const setsWonB = useMatchStore((s) => s.setsWonB);
+
+  // ✅ New Manual Actions (These will be in the updated store)
+  const incrementScore = useMatchStore((s) => s.incrementScore);
+  const decrementScore = useMatchStore((s) => s.decrementScore);
+  const manualSetSets = useMatchStore((s) => s.manualSetSets);
 
   // Match Summary
   const openMatchSummary = useMatchStore((s) => s.openMatchSummary);
@@ -55,27 +67,25 @@ export default function Home() {
   const toast = useMatchStore((s) => s.toast);
   const clearToast = useMatchStore((s) => s.clearToast);
 
-  const teamA = useMemo(() => players.filter((p) => p.teamId === "A"), [players]);
-  const teamB = useMemo(() => players.filter((p) => p.teamId === "B"), [players]);
-
+  // Local State
   const [teamNameA, setTeamNameA] = useState("TEAM A NAME");
   const [teamNameB, setTeamNameB] = useState("TEAM B NAME");
-  const [setsA, setSetsA] = useState(0); 
-  const [setsB, setSetsB] = useState(0);
   const [timeoutsA, setTimeoutsA] = useState([false, false, false]);
   const [timeoutsB, setTimeoutsB] = useState([false, false, false]);
-
   const [isRulesOpen, setIsRulesOpen] = useState(false);
 
-  const needToWinMatch = Math.ceil(setRules.bestOf / 2);
-  const isDecidingSet = setsWonA === needToWinMatch - 1 && setsWonB === needToWinMatch - 1;
-  const currentTargetPoints = isDecidingSet ? setRules.decidingPoints : setRules.regularPoints;
+  // Computed
+  const currentTargetPoints = isDecidingSet(setsWonA, setsWonB, setRules.bestOf) 
+    ? setRules.decidingPoints 
+    : setRules.regularPoints;
 
+  // -- Drag & Drop Sensors --
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 120, tolerance: 8 } })
   );
 
+  // -- Scroll Locking Fix --
   const restoreScroll = useCallback(() => {
     document.documentElement.style.overflow = "";
     document.body.style.overflow = "";
@@ -86,18 +96,16 @@ export default function Home() {
     return () => restoreScroll();
   }, [restoreScroll]);
 
-  // Sync UI sets with Store sets
-  useEffect(() => {
-    setSetsA(setsWonA);
-    setSetsB(setsWonB);
-  }, [setsWonA, setsWonB]);
+  // -- Handlers --
 
   function onDragStart(_: DragStartEvent) {
     document.documentElement.style.overflow = "hidden";
     document.body.style.overflow = "hidden";
     document.body.style.touchAction = "none";
   }
+
   function onDragCancel(_: DragCancelEvent) { restoreScroll(); }
+
   function onDragEnd(event: DragEndEvent) {
     restoreScroll();
     const { active, over } = event;
@@ -141,6 +149,13 @@ export default function Home() {
     }
   }, [resetMatch]);
 
+  const adjustSets = (teamId: "A" | "B", delta: number) => {
+    const current = teamId === "A" ? setsWonA : setsWonB;
+    const newVal = Math.max(0, Math.min(5, current + delta));
+    manualSetSets(teamId, newVal);
+  };
+
+  // Toast Timer
   const toastTimer = useRef<number | null>(null);
   useEffect(() => {
     if (!toast) return;
@@ -149,75 +164,69 @@ export default function Home() {
     return () => { if (toastTimer.current) window.clearTimeout(toastTimer.current); };
   }, [toast, clearToast]);
 
-  // ✅ SCALED UP BUTTON STYLES
-  const btnBase = "px-4 py-2 sm:px-6 sm:py-3 text-xs sm:text-base font-bold rounded-xl shadow-md transition-all active:scale-95 border border-transparent tracking-wide";
-  const btnWhite = `${btnBase} bg-white text-gray-900 hover:bg-gray-100 hover:shadow-lg`;
+  // Styles
+  const btnBase = "px-3 py-2 sm:px-5 sm:py-2.5 text-xs sm:text-sm font-bold rounded-xl shadow-sm transition-all active:scale-95 border border-transparent tracking-wide";
+  const btnWhite = `${btnBase} bg-white text-gray-900 hover:bg-gray-100 hover:shadow-md`;
   const btnDark = `${btnBase} bg-gray-800 text-white hover:bg-gray-700`;
-  const btnBlue = `${btnBase} bg-sky-500 text-white hover:bg-sky-600 scale-105 ring-4 ring-sky-900/30 sm:text-lg`;
+  const btnBlue = `${btnBase} bg-sky-500 text-white hover:bg-sky-600 ring-2 ring-sky-900/20 text-sm sm:text-base`;
   const btnRed = `${btnBase} bg-red-600 text-white hover:bg-red-700`;
   const btnDisabled = `${btnBase} bg-gray-700 text-gray-500 cursor-not-allowed shadow-none`;
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-[var(--background)] text-white">
       
-      {/* 🟢 LEFT: Event Log Rail (Hidden on Mobile) */}
-      <div className="hidden xl:block w-72 shrink-0 border-r border-white/10 shadow-sm z-10 overflow-hidden bg-white/5 backdrop-blur-sm">
+      {/* 🟢 LEFT: Event Log Rail (Hidden on small screens) */}
+      <div className="hidden xl:block w-64 shrink-0 border-r border-white/10 shadow-sm z-10 overflow-hidden bg-white/5 backdrop-blur-sm">
         <EventLogRail />
       </div>
 
       {/* 🟢 CENTER: Main Content */}
       <div className="flex-1 overflow-y-auto">
-        <main className="min-h-full p-3 sm:p-6 lg:p-8 flex flex-col">
+        <main className="min-h-full p-2 sm:p-6 flex flex-col">
           <DndContext sensors={sensors} onDragStart={onDragStart} onDragCancel={onDragCancel} onDragEnd={onDragEnd}>
             
-            {/* Wrapper: Increased max-width to fill screen */}
-            <div className="w-full max-w-[1800px] mx-auto flex flex-col gap-4 sm:gap-8 pb-20 flex-1">
+            {/* Wrapper */}
+            <div className="w-full max-w-[1600px] mx-auto flex flex-col gap-4 sm:gap-6 pb-20 flex-1">
               <MatchSummaryModal />
 
-              {/* Toast */}
+              {/* Toast Notification */}
               {toast && (
                 <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[999] px-4 pointer-events-none">
-                  <div className={`w-full max-w-lg rounded-2xl shadow-2xl border-2 px-6 py-4 flex items-start gap-4 pointer-events-auto transition-all duration-200 ease-out animate-[toastIn_0.18s_ease-out] ${toast.type === "error" ? "bg-red-600 text-white border-red-400" : "bg-sky-600 text-white border-sky-400"}`} role="status">
-                    <div className="text-lg font-bold leading-snug flex-1">{toast.message}</div>
-                    <button type="button" onClick={clearToast} className="shrink-0 rounded-lg bg-white/20 hover:bg-white/30 px-3 py-1 text-sm font-black">✕</button>
+                  <div className={`w-full max-w-md rounded-xl shadow-2xl border-2 px-5 py-3 flex items-start gap-4 pointer-events-auto transition-all animate-in fade-in slide-in-from-top-4 ${toast.type === "error" ? "bg-red-600 text-white border-red-400" : "bg-sky-600 text-white border-sky-400"}`} role="status">
+                    <div className="text-sm font-bold leading-snug flex-1">{toast.message}</div>
+                    <button type="button" onClick={clearToast} className="shrink-0 rounded-lg bg-white/20 hover:bg-white/30 px-2 py-0.5 text-xs font-black">✕</button>
                   </div>
                 </div>
               )}
 
               {/* === ROW 1: HEADER CONTROLS === */}
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                {/* Left: Summary/Roster/Rules */}
-                <div className="flex gap-2 sm:gap-3 flex-wrap">
-                  <button 
-                    onClick={openMatchSummary} 
-                    disabled={savedSetsCount === 0} 
-                    className={savedSetsCount > 0 ? btnWhite : btnDisabled}
-                  >
-                    MATCH SUMMARY {savedSetsCount > 0 && `(${savedSetsCount})`}
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                {/* Left Group */}
+                <div className="flex gap-2 flex-wrap">
+                  <button onClick={openMatchSummary} disabled={savedSetsCount === 0} className={savedSetsCount > 0 ? btnWhite : btnDisabled}>
+                    SUMMARY {savedSetsCount > 0 && `(${savedSetsCount})`}
                   </button>
                   <button onClick={() => router.push("/setup")} className={btnWhite}>ROSTER</button>
                   <button onClick={() => setIsRulesOpen(true)} className={`${btnDark} flex items-center gap-2`}>
-                    <span>⚙️ RULES</span>
-                    <span className="bg-gray-700 px-2 py-0.5 rounded text-xs uppercase tracking-wider">Bo{setRules.bestOf}</span>
+                    <span>⚙️</span>
+                    <span className="bg-gray-700 px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wider">Bo{setRules.bestOf}</span>
                   </button>
                 </div>
 
-                {/* Center: Reset/Undo */}
-                <div className="flex gap-2 sm:gap-3">
+                {/* Right Group */}
+                <div className="flex gap-2">
                   <button onClick={handleReset} className={btnRed}>RESET</button>
                   <button onClick={undoLastEvent} disabled={!canUndo} className={canUndo ? btnDark : btnDisabled}>UNDO</button>
-                </div>
-
-                {/* Right: Swap/Rot */}
-                <div className="flex gap-2 sm:gap-3">
                   <button onClick={swapSides} className={btnWhite}>SWAP</button>
-                  <button onClick={rotateLeftSide} className={btnWhite}>ROT L</button>
-                  <button onClick={rotateRightSide} className={btnWhite}>ROT R</button>
+                  <div className="hidden sm:flex gap-2">
+                    <button onClick={rotateLeftSide} className={btnWhite}>ROT L</button>
+                    <button onClick={rotateRightSide} className={btnWhite}>ROT R</button>
+                  </div>
                 </div>
               </div>
 
-              {/* === ROW 2: SERVE BUTTONS (Centered & Large) === */}
-              <div className="flex flex-wrap justify-center gap-4 sm:gap-6 py-2">
+              {/* === ROW 2: SERVE BUTTONS === */}
+              <div className="flex justify-center gap-4 py-1">
                  <button onClick={() => setServingTeam("A")} className={servingTeam === "A" ? btnBlue : btnWhite}>
                     Serve Team A
                   </button>
@@ -228,62 +237,83 @@ export default function Home() {
 
               {/* === ROW 3: SCOREBOARD & NAMES === */}
               <div className="flex flex-col gap-4 items-center w-full">
-                <div className="flex items-center gap-4">
-                    <div className="text-[10px] sm:text-xs font-bold text-gray-400 uppercase tracking-[0.2em]">
-                    Set {setNumber} • Target {currentTargetPoints}
+                
+                {/* Set Info & Manual Set Controls */}
+                <div className="flex items-center gap-4 bg-gray-900/40 px-6 py-2 rounded-full border border-white/5">
+                    <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                      Set {setNumber} • Target {currentTargetPoints}
                     </div>
-                    <div className="bg-white px-4 sm:px-8 py-1.5 rounded-full text-xs sm:text-sm font-black text-gray-900 shadow-md">
-                    SETS: {setsWonA} - {setsWonB}
+                    <div className="h-4 w-px bg-white/10" />
+                    
+                    {/* Manual Sets Control */}
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-1">
+                        <button onClick={() => adjustSets("A", -1)} className="w-5 h-5 rounded hover:bg-white/10 text-white font-bold flex items-center justify-center text-xs">-</button>
+                        <span className="text-sm font-black text-white">{setsWonA}</span>
+                        <button onClick={() => adjustSets("A", 1)} className="w-5 h-5 rounded hover:bg-white/10 text-white font-bold flex items-center justify-center text-xs">+</button>
+                      </div>
+                      <span className="text-[10px] font-bold text-gray-500 uppercase">SETS</span>
+                      <div className="flex items-center gap-1">
+                        <button onClick={() => adjustSets("B", -1)} className="w-5 h-5 rounded hover:bg-white/10 text-white font-bold flex items-center justify-center text-xs">-</button>
+                        <span className="text-sm font-black text-white">{setsWonB}</span>
+                        <button onClick={() => adjustSets("B", 1)} className="w-5 h-5 rounded hover:bg-white/10 text-white font-bold flex items-center justify-center text-xs">+</button>
+                      </div>
                     </div>
                 </div>
 
-                {/* Main Grid: STACKS on Mobile (flex-col), Grid on Large Screens (lg:grid) */}
-                <div className="flex flex-col lg:grid lg:grid-cols-[1fr_auto_1fr] w-full gap-4 sm:gap-8 items-center lg:items-end">
+                {/* Main Scoreboard Layout */}
+                <div className="flex flex-col lg:grid lg:grid-cols-[1fr_auto_1fr] w-full gap-4 items-center lg:items-end">
                   
-                  {/* Left Side */}
-                  <div className="flex flex-col items-center lg:items-start gap-3 w-full">
+                  {/* LEFT TEAM (Name & Timeouts) */}
+                  <div className="flex flex-col items-center lg:items-start gap-2 w-full">
                     <input 
                       value={leftTeam === "A" ? teamNameA : teamNameB} 
                       onChange={(e) => leftTeam === "A" ? setTeamNameA(e.target.value) : setTeamNameB(e.target.value)} 
-                      className="w-full text-center font-black outline-none bg-white text-gray-900 rounded-2xl shadow-lg px-6 py-4 text-xl sm:text-3xl border-4 border-transparent focus:border-blue-400 transition-all uppercase tracking-tight" 
+                      className="w-full text-center lg:text-left font-black bg-transparent text-white text-2xl sm:text-3xl uppercase tracking-tight focus:bg-white/10 rounded px-2 outline-none border-b-2 border-transparent focus:border-white/50 transition-all"
                     />
-                    <div className="flex flex-col items-center w-full gap-2 px-4">
+                    <div className="flex items-center gap-3 px-2">
                       <TimeoutPips value={leftTeam === "A" ? timeoutsA : timeoutsB} onToggle={(idx) => toggleTimeout(leftTeam, idx)} />
-                      <button onClick={() => useNextTimeout(leftTeam)} className="w-full py-2 bg-gray-800 text-white text-xs font-bold rounded-lg shadow hover:bg-gray-700 uppercase tracking-widest transition">Timeout</button>
+                      <button onClick={() => useNextTimeout(leftTeam)} className="text-[10px] font-bold bg-white/10 hover:bg-white/20 px-2 py-1 rounded text-gray-300 uppercase tracking-wider transition">Timeout</button>
                     </div>
                   </div>
 
-                  {/* Center: Clear Left - SCORE - Clear Right */}
-                  <div className="flex items-end gap-3 sm:gap-6 pb-2">
-                    <button onClick={clearLeftSide} className="mb-2 sm:mb-4 px-3 sm:px-4 py-2 rounded-xl bg-gray-800 text-gray-400 text-[10px] sm:text-xs font-bold hover:bg-red-600 hover:text-white shadow-md transition uppercase tracking-wide">
-                      Clear
-                    </button>
+                  {/* CENTER SCORE DISPLAY (With Arrows) */}
+                  <div className="flex items-end gap-4 pb-2">
+                    <button onClick={clearLeftSide} className="mb-4 text-[10px] font-bold text-gray-500 hover:text-red-400 uppercase tracking-wide">Clear</button>
 
-                    <div className="flex items-center gap-2 sm:gap-4 bg-gray-900/50 p-2 sm:p-4 rounded-3xl backdrop-blur-sm border border-white/5">
-                      {/* Hidden Increments for logic, ScoreControl handles display */}
-                      <button onClick={() => setSetsA((v) => Math.min(5, v + 1))} className="hidden">Inc</button>
-                      <button onClick={() => setSetsA((v) => Math.max(0, v - 1))} className="hidden">Dec</button>
+                    <div className="flex items-center gap-3 bg-gray-900/80 p-3 rounded-3xl border border-white/10 shadow-2xl">
                       
-                      <ScoreControl value={scoreA} teamId="A" />
-                      <span className="text-4xl sm:text-6xl font-black text-white/20 pb-2 sm:pb-4">-</span>
-                      <ScoreControl value={scoreB} teamId="B" />
+                      {/* Score A Control */}
+                      <div className="flex flex-col items-center gap-1">
+                        <button onClick={() => incrementScore("A")} className="w-full h-8 bg-white/5 hover:bg-white/20 rounded-t-xl flex items-center justify-center text-[10px] text-gray-400 hover:text-white transition">▲</button>
+                        <ScoreControl value={scoreA} />
+                        <button onClick={() => decrementScore("A")} className="w-full h-8 bg-white/5 hover:bg-white/20 rounded-b-xl flex items-center justify-center text-[10px] text-gray-400 hover:text-white transition">▼</button>
+                      </div>
+
+                      <span className="text-4xl font-black text-gray-700 pb-2">-</span>
+                      
+                      {/* Score B Control */}
+                      <div className="flex flex-col items-center gap-1">
+                        <button onClick={() => incrementScore("B")} className="w-full h-8 bg-white/5 hover:bg-white/20 rounded-t-xl flex items-center justify-center text-[10px] text-gray-400 hover:text-white transition">▲</button>
+                        <ScoreControl value={scoreB} />
+                        <button onClick={() => decrementScore("B")} className="w-full h-8 bg-white/5 hover:bg-white/20 rounded-b-xl flex items-center justify-center text-[10px] text-gray-400 hover:text-white transition">▼</button>
+                      </div>
+
                     </div>
 
-                    <button onClick={clearRightSide} className="mb-2 sm:mb-4 px-3 sm:px-4 py-2 rounded-xl bg-gray-800 text-gray-400 text-[10px] sm:text-xs font-bold hover:bg-red-600 hover:text-white shadow-md transition uppercase tracking-wide">
-                      Clear
-                    </button>
+                    <button onClick={clearRightSide} className="mb-4 text-[10px] font-bold text-gray-500 hover:text-red-400 uppercase tracking-wide">Clear</button>
                   </div>
 
-                  {/* Right Side */}
-                  <div className="flex flex-col items-center lg:items-end gap-3 w-full">
+                  {/* RIGHT TEAM (Name & Timeouts) */}
+                  <div className="flex flex-col items-center lg:items-end gap-2 w-full">
                     <input 
                       value={rightTeam === "A" ? teamNameA : teamNameB} 
                       onChange={(e) => rightTeam === "A" ? setTeamNameA(e.target.value) : setTeamNameB(e.target.value)} 
-                      className="w-full text-center font-black outline-none bg-white text-gray-900 rounded-2xl shadow-lg px-6 py-4 text-xl sm:text-3xl border-4 border-transparent focus:border-blue-400 transition-all uppercase tracking-tight" 
+                      className="w-full text-center lg:text-right font-black bg-transparent text-white text-2xl sm:text-3xl uppercase tracking-tight focus:bg-white/10 rounded px-2 outline-none border-b-2 border-transparent focus:border-white/50 transition-all"
                     />
-                    <div className="flex flex-col items-center w-full gap-2 px-4">
+                    <div className="flex items-center gap-3 px-2">
                       <TimeoutPips value={rightTeam === "A" ? timeoutsA : timeoutsB} onToggle={(idx) => toggleTimeout(rightTeam, idx)} />
-                      <button onClick={() => useNextTimeout(rightTeam)} className="w-full py-2 bg-gray-800 text-white text-xs font-bold rounded-lg shadow hover:bg-gray-700 uppercase tracking-widest transition">Timeout</button>
+                      <button onClick={() => useNextTimeout(rightTeam)} className="text-[10px] font-bold bg-white/10 hover:bg-white/20 px-2 py-1 rounded text-gray-300 uppercase tracking-wider transition">Timeout</button>
                     </div>
                   </div>
 
@@ -291,65 +321,72 @@ export default function Home() {
               </div>
 
               {/* === ROW 4: BENCH & COURT === */}
-              {/* ✅ RESPONSIVE: Stacks on mobile (flex-col), Grid on Desktop (lg:grid) */}
-              <div className="flex flex-col lg:grid lg:grid-cols-[160px_1fr_160px] gap-6 items-start flex-1 min-h-0">
-                {/* Mobile: Order 2 (Under Bench A) -> Desktop: Order 1 (Left) */}
+              {/* Stacks on mobile, Grid on Desktop */}
+              <div className="flex flex-col lg:grid lg:grid-cols-[160px_1fr_160px] gap-4 items-start flex-1 min-h-0">
+                {/* Bench Left */}
                 <div className="order-2 lg:order-1 flex justify-center w-full lg:w-auto">
                   <BenchRail teamId={leftTeam} />
                 </div>
                 
-                {/* Mobile: Order 1 (Top) -> Desktop: Order 2 (Middle) */}
-                <div className="order-1 lg:order-2 w-full h-full min-h-[300px]">
+                {/* Court */}
+                <div className="order-1 lg:order-2 w-full h-full min-h-[350px]">
                   <Court />
                 </div>
 
-                {/* Mobile: Order 3 (Bottom) -> Desktop: Order 3 (Right) */}
+                {/* Bench Right */}
                 <div className="order-3 flex justify-center w-full lg:w-auto">
                   <BenchRail teamId={rightTeam} />
                 </div>
               </div>
 
               <SlotPanel />
+              
+              {/* ✅ MOBILE SCORING PANEL (Hidden on Desktop) */}
+              {/* This prevents it from overlapping the court on large screens */}
+              <div className="lg:hidden">
+                <ScoresheetPanel />
+              </div>
+
             </div>
           </DndContext>
         </main>
       </div>
 
-      {/* 🟢 RIGHT: Action Sidebar */}
-      <div className="hidden xl:block w-80 shrink-0 border-l border-white/10 shadow-sm z-10 overflow-hidden bg-white/5 backdrop-blur-sm">
+      {/* 🟢 RIGHT: Action Sidebar (Visible ONLY on Desktop) */}
+      <div className="hidden lg:block w-72 shrink-0 border-l border-white/10 shadow-sm z-10 overflow-hidden bg-white/5 backdrop-blur-sm">
         <ActionSidebar />
       </div>
 
       {/* 🟢 MODAL: Rules Settings */}
       {isRulesOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
-          <div className="w-full max-w-sm bg-white rounded-3xl shadow-2xl overflow-hidden text-gray-900 border-4 border-gray-100">
-            <div className="bg-gray-900 px-6 py-5 flex justify-between items-center">
-              <h3 className="text-white font-black text-xl tracking-tight">MATCH RULES</h3>
+          <div className="w-full max-w-sm bg-white rounded-2xl shadow-2xl overflow-hidden text-gray-900 border-4 border-gray-100">
+            <div className="bg-gray-900 px-6 py-4 flex justify-between items-center">
+              <h3 className="text-white font-black text-lg tracking-tight">MATCH RULES</h3>
               <button onClick={() => setIsRulesOpen(false)} className="text-white/50 hover:text-white font-bold text-xl">✕</button>
             </div>
-            <div className="p-8 space-y-8">
+            <div className="p-6 space-y-6">
               <div>
-                <label className="text-xs font-bold text-gray-400 uppercase block mb-3 tracking-widest">Match Type</label>
-                <div className="flex bg-gray-100 rounded-xl p-1.5 gap-1">
+                <label className="text-[10px] font-bold text-gray-400 uppercase block mb-2 tracking-widest">Match Type</label>
+                <div className="flex bg-gray-100 rounded-lg p-1 gap-1">
                   {[1, 3, 5].map((bo) => (
-                    <button key={bo} onClick={() => updateSetRules({ bestOf: bo as 3 | 5 })} className={`flex-1 py-3 rounded-lg text-sm font-bold transition ${setRules.bestOf === bo ? "bg-white text-black shadow-md scale-105" : "text-gray-400 hover:text-gray-600"}`}>
+                    <button key={bo} onClick={() => updateSetRules({ bestOf: bo as 3 | 5 })} className={`flex-1 py-2 rounded text-sm font-bold transition ${setRules.bestOf === bo ? "bg-white text-black shadow-sm" : "text-gray-400 hover:text-gray-600"}`}>
                       Best of {bo}
                     </button>
                   ))}
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-6">
+              <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-xs font-bold text-gray-400 uppercase block mb-2 tracking-widest">Points / Set</label>
-                  <input type="number" className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 font-black text-2xl text-center focus:border-blue-500 outline-none text-gray-900" value={setRules.regularPoints} onChange={(e) => updateSetRules({ regularPoints: Number(e.target.value) })} />
+                  <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1 tracking-widest">Points / Set</label>
+                  <input type="number" className="w-full border-2 border-gray-200 rounded-lg px-3 py-2 font-black text-xl text-center focus:border-blue-500 outline-none text-gray-900" value={setRules.regularPoints} onChange={(e) => updateSetRules({ regularPoints: Number(e.target.value) })} />
                 </div>
                 <div>
-                  <label className="text-xs font-bold text-gray-400 uppercase block mb-2 tracking-widest">Deciding Set</label>
-                  <input type="number" className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 font-black text-2xl text-center focus:border-blue-500 outline-none text-gray-900" value={setRules.decidingPoints} onChange={(e) => updateSetRules({ decidingPoints: Number(e.target.value) })} />
+                  <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1 tracking-widest">Deciding Set</label>
+                  <input type="number" className="w-full border-2 border-gray-200 rounded-lg px-3 py-2 font-black text-xl text-center focus:border-blue-500 outline-none text-gray-900" value={setRules.decidingPoints} onChange={(e) => updateSetRules({ decidingPoints: Number(e.target.value) })} />
                 </div>
               </div>
-              <button onClick={() => setIsRulesOpen(false)} className="w-full bg-gray-900 text-white font-bold py-4 rounded-xl hover:bg-black transition text-lg shadow-xl hover:shadow-2xl transform active:scale-95">SAVE RULES</button>
+              <button onClick={() => setIsRulesOpen(false)} className="w-full bg-gray-900 text-white font-bold py-3 rounded-xl hover:bg-black transition shadow-lg">SAVE RULES</button>
             </div>
           </div>
         </div>
@@ -359,13 +396,18 @@ export default function Home() {
   );
 }
 
+// --- Helper for deciding set logic ---
+function isDecidingSet(setsA: number, setsB: number, bestOf: number) {
+  const needToWin = Math.ceil(bestOf / 2);
+  return setsA === needToWin - 1 && setsB === needToWin - 1;
+}
+
 // --- SUB COMPONENTS ---
 
-function ScoreControl({ value, teamId }: { value: number, teamId: "A" | "B" }) {
+function ScoreControl({ value }: { value: number }) {
   return (
-    // ✅ RESPONSIVE TEXT: Scales from 5xl (mobile) to 8xl (desktop)
-    <div className="bg-white min-w-[80px] sm:min-w-[140px] text-center py-2 sm:py-4 rounded-3xl shadow-2xl border-4 border-white/50">
-      <span className="text-5xl sm:text-8xl font-black text-gray-900 tracking-tighter leading-none block">
+    <div className="bg-white min-w-[100px] text-center py-2 sm:py-4 rounded-2xl shadow-xl border-4 border-white/50">
+      <span className="text-6xl font-black text-gray-900 tracking-tighter leading-none block">
         {value}
       </span>
     </div>
@@ -374,15 +416,15 @@ function ScoreControl({ value, teamId }: { value: number, teamId: "A" | "B" }) {
 
 function TimeoutPips({ value, onToggle }: { value: boolean[]; onToggle: (idx: number) => void }) {
   return (
-    <div className="flex items-center gap-3 py-2">
+    <div className="flex items-center gap-1.5">
       {value.map((used, idx) => (
         <button
           key={idx}
           type="button"
           onClick={() => onToggle(idx)}
           className={[
-            "h-4 w-4 sm:h-5 sm:w-5 rounded-full shadow-md transition-all duration-300 border-2 hover:scale-125", 
-            used ? "bg-red-500 border-red-600 scale-110" : "bg-gray-200 border-gray-300"
+            "h-3 w-3 rounded-full shadow-sm transition-all duration-300 border hover:scale-125", 
+            used ? "bg-red-500 border-red-500" : "bg-white/20 border-white/40"
           ].join(" ")}
           title={used ? "Timeout used" : "Timeout available"}
         />

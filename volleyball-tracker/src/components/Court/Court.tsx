@@ -13,23 +13,21 @@ export default function Court() {
   const rightTeam = opponentOf(leftTeam);
 
   return (
-    // ✅ RESPONSIVE: Reduced padding on mobile (p-2), standard on desktop (md:p-8)
-    <div className="w-full max-w-6xl mx-auto aspect-[4/3] rounded-2xl bg-sky-500 p-2 sm:p-4 md:p-8 shadow-sm">
-      <div className="relative h-full w-full rounded-xl border-[4px] sm:border-[6px] border-white/90 bg-amber-400">
-        <div className="absolute inset-2 sm:inset-4 rounded-lg border-[3px] sm:border-[4px] border-white/90" />
+    <div className="w-full max-w-7xl mx-auto aspect-[4/3] rounded-3xl bg-sky-500 p-2 sm:p-4 xl:p-8 shadow-xl transition-all">
+      <div className="relative h-full w-full rounded-2xl border-[4px] sm:border-[6px] xl:border-[8px] border-white/90 bg-amber-400">
+        <div className="absolute inset-2 sm:inset-4 rounded-xl border-[2px] sm:border-[3px] xl:border-[4px] border-white/90" />
 
-        <div className="absolute left-1/2 top-4 bottom-4 w-[4px] sm:w-[6px] -translate-x-1/2 bg-white/90 rounded" />
+        {/* Center Line */}
+        <div className="absolute left-1/2 top-2 bottom-2 w-[4px] xl:w-[8px] -translate-x-1/2 bg-white/90 rounded" />
 
-        <div className="absolute left-1/2 top-[10%] bottom-[10%] w-[6px] sm:w-[10px] -translate-x-1/2 bg-gray-500 rounded-full shadow" />
-        <div className="absolute left-1/2 top-[8%] h-3 w-3 sm:h-4 sm:w-4 -translate-x-1/2 rounded-full bg-blue-900" />
-        <div className="absolute left-1/2 bottom-[8%] h-3 w-3 sm:h-4 sm:w-4 -translate-x-1/2 rounded-full bg-blue-900" />
+        {/* Net Posts */}
+        <div className="absolute left-1/2 top-[-8px] bottom-[-8px] w-[8px] xl:w-[12px] -translate-x-1/2 bg-gray-600 rounded-full shadow-lg z-20" />
+        
+        {/* 3m Lines */}
+        <DashedMarker className="absolute left-[49%] top-0 bottom-0" />
+        <DashedMarker className="absolute right-[49%] top-0 bottom-0" />
 
-        <DashedMarker className="absolute left-[49%] top-[-15px] sm:top-[-22px]" />
-        <DashedMarker className="absolute left-[49%] bottom-[-15px] sm:bottom-[-22px] rotate-180" />
-        <DashedMarker className="absolute right-[49%] top-[-15px] sm:top-[-22px]" />
-        <DashedMarker className="absolute right-[49%] bottom-[-15px] sm:bottom-[-22px] rotate-180" />
-
-        <div className="absolute inset-2 sm:inset-4 grid grid-cols-2 gap-0">
+        <div className="absolute inset-1 sm:inset-2 xl:inset-6 grid grid-cols-2 gap-0 z-10">
           <TeamHalf teamId={leftTeam} side="left" />
           <TeamHalf teamId={rightTeam} side="right" />
         </div>
@@ -42,9 +40,11 @@ function TeamHalf({ side, teamId }: { side: "left" | "right"; teamId: TeamId }) 
   const isLeft = side === "left";
   const nearNetFirst = !isLeft;
 
-  // ✅ RESPONSIVE GRID: Smaller gaps on mobile (gap-2) -> larger on desktop (gap-8)
+  // Responsive Grid Gaps
+  const gridClass = "grid grid-rows-3 gap-2 sm:gap-3 lg:gap-4 xl:gap-8 place-items-center h-full";
+
   const BackCol = (
-    <div className="grid grid-rows-3 gap-2 sm:gap-4 md:gap-8 place-items-center">
+    <div className={gridClass}>
       <CourtSlot teamId={teamId} slot={5} />
       <CourtSlot teamId={teamId} slot={6} />
       <CourtSlot teamId={teamId} slot={1} />
@@ -52,7 +52,7 @@ function TeamHalf({ side, teamId }: { side: "left" | "right"; teamId: TeamId }) 
   );
 
   const FrontCol = (
-    <div className="grid grid-rows-3 gap-2 sm:gap-4 md:gap-8 place-items-center">
+    <div className={gridClass}>
       <CourtSlot teamId={teamId} slot={4} />
       <CourtSlot teamId={teamId} slot={3} />
       <CourtSlot teamId={teamId} slot={2} />
@@ -62,15 +62,15 @@ function TeamHalf({ side, teamId }: { side: "left" | "right"; teamId: TeamId }) 
   return (
     <div
       className={[
-        "h-full w-full border-white/90 flex items-center justify-center",
-        isLeft ? "border-r-[2px] sm:border-r-[4px]" : "border-l-[2px] sm:border-l-[4px]",
+        "h-full w-full border-white/90 flex flex-col justify-center",
+        isLeft ? "border-r-[2px] xl:border-r-[4px]" : "border-l-[2px] xl:border-l-[4px]",
       ].join(" ")}
     >
       <div className={[
         "h-full w-full grid grid-cols-2",
-        "gap-2 sm:gap-6 md:gap-10", // Mobile gap-2, Desktop gap-10
-        "py-4 sm:py-6 md:py-10",     // Mobile py-4, Desktop py-10
-        "px-1 sm:px-4 md:pl-4 md:pr-10" // Tighter padding on mobile
+        "gap-1 sm:gap-3 lg:gap-4 xl:gap-8", 
+        "py-2 sm:py-4 xl:py-8",
+        "px-1 sm:px-2 xl:px-6"
       ].join(" ")}>
         {nearNetFirst ? FrontCol : BackCol}
         {nearNetFirst ? BackCol : FrontCol}
@@ -118,63 +118,68 @@ function CourtSlot({ teamId, slot }: { teamId: TeamId; slot: RotationSlot }) {
     <div
       ref={setNodeRef}
       className={[
-        // ✅ RESPONSIVE SIZING:
-        // Mobile: w-20 h-14 (Small enough to fit 2 cols on a phone)
-        // Tablet: w-28 h-20
-        // Desktop: w-40 h-28 (Original large size)
-        "w-20 h-14 sm:w-28 sm:h-20 md:w-40 md:h-28",
+        // ✅ INCREASED SIZING for desktop readability
+        "w-full h-full max-w-[180px] max-h-[120px] aspect-[16/10]",
         
-        "rounded-lg sm:rounded-xl shadow-sm transition-all px-1 py-1 sm:px-3 sm:py-2 flex flex-col text-left",
-        "cursor-pointer select-none border-2",
+        "rounded-lg sm:rounded-xl xl:rounded-2xl shadow-md transition-all px-2 py-1 sm:px-3 sm:py-2 xl:px-4 xl:py-3 flex flex-col text-left relative",
+        "cursor-pointer select-none border-[2px] sm:border-[3px]",
         "text-gray-900",
-        playerId ? `${posColors.badgeBg} ${posColors.ring.replace('ring-', 'border-')}` : "bg-gray-50 border-white/50",
-        isSelected ? "ring-2 sm:ring-4 ring-blue-400 z-10" : "hover:scale-[1.02] hover:shadow-md",
-        isOver ? "ring-2 sm:ring-4 ring-emerald-400 bg-emerald-50" : "",
-        isServer ? "ring-2 sm:ring-4 ring-yellow-300 shadow-xl shadow-yellow-400/40 z-10" : "",
-        isLiberoAutoSub ? "ring-2 sm:ring-4 ring-teal-300 shadow-xl shadow-teal-400/40 z-10" : "",
+        playerId ? `${posColors.badgeBg} ${posColors.ring.replace('ring-', 'border-')}` : "bg-gray-50/90 border-white/60",
+        isSelected ? "ring-4 ring-blue-500 z-20 scale-105" : "hover:scale-[1.03] hover:shadow-lg",
+        isOver ? "ring-4 ring-emerald-400 bg-emerald-100" : "",
+        isServer ? "ring-4 ring-yellow-400 shadow-xl shadow-yellow-500/40 z-10" : "",
+        isLiberoAutoSub ? "ring-4 ring-teal-400 shadow-xl shadow-teal-500/40 z-10" : "",
       ].join(" ")}
       onClick={handlePrimaryClick}
     >
-      <div className="flex items-center justify-between">
-        <div className="text-[7px] sm:text-[10px] uppercase font-black opacity-50">{slotLabel[slot]}</div>
-        <div className="flex items-center gap-1">
-          {isServer && <div className="text-[6px] sm:text-[9px] font-black px-1 py-0.5 rounded-full bg-yellow-400 text-black shadow-sm">SERVE</div>}
-          {isLiberoAutoSub && <div className="text-[6px] sm:text-[9px] font-black px-1 py-0.5 rounded-full bg-teal-400 text-white shadow-sm">LIBERO</div>}
+      {/* Top Row: Label & Badges */}
+      <div className="flex items-center justify-between leading-none mb-auto">
+        <div className="text-[9px] sm:text-[10px] xl:text-sm uppercase font-black opacity-60 tracking-wider">{slotLabel[slot]}</div>
+        
+        <div className="flex gap-1">
+          {isServer && <div className="w-2 h-2 sm:w-2.5 sm:h-2.5 xl:w-3 xl:h-3 rounded-full bg-yellow-500 shadow-sm border border-white" title="Server" />}
+          {isLiberoAutoSub && <div className="w-2 h-2 sm:w-2.5 sm:h-2.5 xl:w-3 xl:h-3 rounded-full bg-teal-500 shadow-sm border border-white" title="Libero" />}
         </div>
       </div>
 
-      <div className="mt-0.5 sm:mt-1 flex-1 flex flex-col justify-center">
+      {/* Player Info - Centered */}
+      <div className="flex-1 flex flex-col justify-center min-h-0 items-center text-center">
         {player ? (
           <>
-            <div className="flex items-center justify-between">
-                <div className="text-sm sm:text-lg md:text-xl font-black leading-none">#{player.jerseyNumber}</div>
-                <div className={`hidden sm:block text-[8px] sm:text-[10px] font-black px-1 sm:px-2 py-0.5 rounded-full shadow-sm ${posColors.chipBg} ${posColors.chipText}`}>
+            <div className="flex flex-col items-center">
+                {/* ✅ HUGE Jersey Number */}
+                <div className="text-2xl sm:text-3xl xl:text-5xl font-black leading-none tracking-tighter text-gray-900 drop-shadow-sm">
+                  {player.jerseyNumber}
+                </div>
+                
+                {/* ✅ Larger Name */}
+                <div className="text-xs sm:text-sm xl:text-lg font-bold truncate leading-tight mt-0.5 xl:mt-1 max-w-full px-1">
+                  {player.name}
+                </div>
+
+                {/* Position Pill */}
+                <div className={`mt-1 hidden sm:block text-[9px] xl:text-xs font-black px-2 py-0.5 rounded-full shadow-sm border border-black/5 ${posColors.chipBg} ${posColors.chipText}`}>
                     {player.position}
                 </div>
             </div>
-            
-            <div className="text-[8px] sm:text-xs md:text-sm font-bold truncate leading-tight mt-0.5 sm:mt-1">{player.name}</div>
 
+            {/* Sub Info */}
             {isLiberoAutoSub && replacedMB && (
-              <div className="hidden sm:block text-[8px] sm:text-[9px] opacity-70 font-semibold truncate mt-0.5">Subbed #{replacedMB.jerseyNumber}</div>
+              <div className="hidden xl:block text-[10px] font-bold text-gray-500 truncate mt-1 bg-white/50 px-1.5 py-0.5 rounded">
+                Sub #{replacedMB.jerseyNumber}
+              </div>
             )}
           </>
         ) : (
-          <div className="text-[8px] sm:text-sm font-bold text-black/30 text-center">Empty</div>
+          <div className="text-xs sm:text-sm xl:text-xl font-bold text-gray-300">Empty</div>
         )}
       </div>
 
-      <div className="mt-0.5 sm:mt-1">
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); if (!playerId) { selectSlot(teamId, slot, "bench"); return; } openScoresheet(teamId, slot); }}
-          className={[
-            "w-full rounded sm:rounded-lg px-1 sm:px-2 py-0.5 sm:py-1 text-[7px] sm:text-[10px] font-extrabold uppercase tracking-wide transition-colors",
-            playerId ? "bg-white/60 hover:bg-white text-black shadow-sm" : "bg-black/5 text-black/40 hover:bg-black/10",
-          ].join(" ")}
-        >
-          {playerId ? "Score" : "Assign"}
-        </button>
+      {/* Action Button Overlay (Hover) */}
+      <div className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity bg-black/10 rounded-xl backdrop-blur-[1px]">
+         <span className="bg-white text-black font-black text-xs px-3 py-1.5 rounded-full shadow-lg uppercase tracking-wider scale-110">
+            {playerId ? "Score" : "Add"}
+         </span>
       </div>
     </div>
   );
@@ -183,9 +188,7 @@ function CourtSlot({ teamId, slot }: { teamId: TeamId; slot: RotationSlot }) {
 function DashedMarker({ className }: { className?: string }) {
   return (
     <div className={className}>
-      <div className="flex flex-col gap-1 sm:gap-2">
-        {Array.from({ length: 6 }).map((_, i) => <div key={i} className="h-2 w-1.5 sm:h-3 sm:w-2 rounded bg-white/90" />)}
-      </div>
+      <div className="h-full w-full border-r-[2px] sm:border-r-[3px] border-dashed border-white/50" />
     </div>
   );
 }
