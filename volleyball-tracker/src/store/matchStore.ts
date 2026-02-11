@@ -106,12 +106,10 @@ function applyLiberoAutomation(params: { teamId: TeamId; court: CourtState; play
   }
 
   if (nextSwap.active && nextSwap.slot && nextSwap.liberoId && nextSwap.replacedMbId) {
-    // If the Libero is in the Front Row, they MUST swap out.
     if (isFrontRowSlot(nextSwap.slot)) {
       if (nextCourt[nextSwap.slot] === nextSwap.liberoId) nextCourt[nextSwap.slot] = nextSwap.replacedMbId;
       return { court: nextCourt, swap: defaultLiberoSwap(), toast: makeToast(`Auto-sub: ${teamId} Libero out (MB returns to front row).`, "info") };
     }
-    // Integrity check
     if (nextCourt[nextSwap.slot] !== nextSwap.liberoId) {
       if (nextCourt[nextSwap.slot] === nextSwap.replacedMbId) nextCourt[nextSwap.slot] = nextSwap.liberoId;
       else nextSwap = defaultLiberoSwap();
@@ -120,11 +118,8 @@ function applyLiberoAutomation(params: { teamId: TeamId; court: CourtState; play
     return { court: nextCourt, swap: nextSwap };
   }
 
-  // If this team is Serving, the MB stays in to serve (Libero cannot serve in this logic).
-  // Unless your rules allow Libero serve, usually MB serves then swaps.
   if (params.servingTeam === teamId) return { court: nextCourt, swap: nextSwap };
 
-  // Try to swap Libero IN for a back-row MB
   const liberoSlot = config.liberoId ? findSlotOf(config.liberoId) : null;
   if (!liberoSlot) {
     let chosenMbId: string | null = null;
@@ -146,16 +141,61 @@ function applyLiberoAutomation(params: { teamId: TeamId; court: CourtState; play
 }
 
 type RoleKey = "WINGERS" | "MIDDLE_BLOCKER" | "LIBERO" | "SETTER";
-const POG_MULTIPLIERS: Record<RoleKey, any> = {
-  WINGERS: { SERVE: 1, RECEPTION: 1, RECEPTION_FAULT: -1, DIG: 1, DIG_FAULT: -1, ATTACK: 1, BLOCK: 1, SET: 0, SET_FAULT: 0 },
-  MIDDLE_BLOCKER: { SERVE: 1, RECEPTION: 0, RECEPTION_FAULT: 0, DIG: 1, DIG_FAULT: -1, ATTACK: 2, BLOCK: 2, SET: 0, SET_FAULT: 0 },
-  LIBERO: { SERVE: 0, RECEPTION: 1.5, RECEPTION_FAULT: -1, DIG: 1, DIG_FAULT: -1, ATTACK: 0, BLOCK: 0, SET: 0.5, SET_FAULT: 0 },
-  SETTER: { SERVE: 1, RECEPTION: 0, RECEPTION_FAULT: 0, DIG: 1, DIG_FAULT: -1, ATTACK: 0.5, BLOCK: 1, SET: 1, SET_FAULT: -1 },
+
+// ✅ GRANULAR STAT KEYS (Matching PDF Columns)
+type StatKey = 
+  | "SERVE_ACE" | "SERVE_SUCCESS" | "SERVE_ERROR"
+  | "RECEPTION_EXC" | "RECEPTION_ATT" | "RECEPTION_ERR"
+  | "DIG_EXC" | "DIG_ATT" | "DIG_ERR"
+  | "ATTACK_KILL" | "ATTACK_ATT" | "ATTACK_ERR"
+  | "BLOCK_KILL" | "BLOCK_ERR"
+  | "SET_EXC" | "SET_RUN" | "SET_ERR";
+
+// ✅ UPDATED POINTS SYSTEM FROM PDF (Pages 3-5)
+const POG_MULTIPLIERS: Record<RoleKey, Record<StatKey, number>> = {
+  WINGERS: { 
+    SERVE_ACE: 2, SERVE_SUCCESS: 1, SERVE_ERROR: -2,
+    RECEPTION_EXC: 2, RECEPTION_ATT: 1, RECEPTION_ERR: -2,
+    DIG_EXC: 2, DIG_ATT: 1, DIG_ERR: -2,
+    ATTACK_KILL: 2, ATTACK_ATT: 0, ATTACK_ERR: -2,
+    BLOCK_KILL: 2, BLOCK_ERR: -2,
+    SET_EXC: 0, SET_RUN: 0, SET_ERR: 0
+  },
+  MIDDLE_BLOCKER: { 
+    SERVE_ACE: 2, SERVE_SUCCESS: 1, SERVE_ERROR: -2,
+    RECEPTION_EXC: 0, RECEPTION_ATT: 0, RECEPTION_ERR: 0,
+    DIG_EXC: 2, DIG_ATT: 1, DIG_ERR: -2,
+    ATTACK_KILL: 4, ATTACK_ATT: 0, ATTACK_ERR: -4,
+    BLOCK_KILL: 4, BLOCK_ERR: -4,
+    SET_EXC: 0, SET_RUN: 0, SET_ERR: 0
+  },
+  LIBERO: { 
+    SERVE_ACE: 0, SERVE_SUCCESS: 0, SERVE_ERROR: 0,
+    RECEPTION_EXC: 3, RECEPTION_ATT: 1, RECEPTION_ERR: -2,
+    DIG_EXC: 2, DIG_ATT: 1, DIG_ERR: -2,
+    ATTACK_KILL: 0, ATTACK_ATT: 0, ATTACK_ERR: 0,
+    BLOCK_KILL: 0, BLOCK_ERR: 0,
+    SET_EXC: 0, SET_RUN: 2, SET_ERR: -2
+  },
+  SETTER: { 
+    SERVE_ACE: 2, SERVE_SUCCESS: 1, SERVE_ERROR: -2,
+    RECEPTION_EXC: 0, RECEPTION_ATT: 0, RECEPTION_ERR: 0,
+    DIG_EXC: 2, DIG_ATT: 1, DIG_ERR: -2,
+    ATTACK_KILL: 1, ATTACK_ATT: 0, ATTACK_ERR: -2,
+    BLOCK_KILL: 2, BLOCK_ERR: -2,
+    SET_EXC: 2, SET_RUN: 1, SET_ERR: -2
+  },
 };
 
-type StatKey = "SERVE" | "RECEPTION" | "RECEPTION_FAULT" | "DIG" | "DIG_FAULT" | "ATTACK" | "BLOCK" | "SET" | "SET_FAULT";
 type PlayerSetStats = { counts: Record<StatKey, number>; pogPoints: number; };
-const emptyCounts = (): Record<StatKey, number> => ({ SERVE: 0, RECEPTION: 0, RECEPTION_FAULT: 0, DIG: 0, DIG_FAULT: 0, ATTACK: 0, BLOCK: 0, SET: 0, SET_FAULT: 0 });
+const emptyCounts = (): Record<StatKey, number> => ({
+  SERVE_ACE: 0, SERVE_SUCCESS: 0, SERVE_ERROR: 0,
+  RECEPTION_EXC: 0, RECEPTION_ATT: 0, RECEPTION_ERR: 0,
+  DIG_EXC: 0, DIG_ATT: 0, DIG_ERR: 0,
+  ATTACK_KILL: 0, ATTACK_ATT: 0, ATTACK_ERR: 0,
+  BLOCK_KILL: 0, BLOCK_ERR: 0,
+  SET_EXC: 0, SET_RUN: 0, SET_ERR: 0
+});
 
 function roleFromPlayer(p: Player | null | undefined): RoleKey {
   const pos = normKey(p?.position ?? "");
@@ -165,26 +205,62 @@ function roleFromPlayer(p: Player | null | undefined): RoleKey {
   return "WINGERS";
 }
 
+// ✅ UPDATED CLASSIFIER TO SUPPORT "SUCCESS/ATTEMPT"
 function classifyForPog(skillKey: string, outcomeKey: string): StatKey | null {
-  const isFault = outcomeKey.includes("FAULT") || outcomeKey.includes("ERROR") || outcomeKey === "OUT" || outcomeKey === "NET";
-  if (skillKey.includes("RECEIVE")) return isFault ? "RECEPTION_FAULT" : "RECEPTION";
-  if (skillKey.includes("DIG")) return isFault ? "DIG_FAULT" : "DIG";
-  if (skillKey.includes("SET")) return isFault ? "SET_FAULT" : "SET";
-  if (skillKey.includes("SERVE")) return "SERVE";
-  if (skillKey.includes("ATTACK") || skillKey.includes("SPIKE")) return (outcomeKey.includes("KILL") || outcomeKey === "POINT" || outcomeKey === "WIN") ? "ATTACK" : null;
-  if (skillKey.includes("BLOCK")) return (outcomeKey.includes("BLOCK_POINT") || outcomeKey === "POINT") ? "BLOCK" : null;
+  const isError = outcomeKey.includes("ERROR") || outcomeKey.includes("FAULT") || outcomeKey === "OUT" || outcomeKey === "NET";
+  
+  if (skillKey.includes("SERVE")) {
+    if (outcomeKey.includes("ACE")) return "SERVE_ACE";
+    if (isError) return "SERVE_ERROR";
+    return "SERVE_SUCCESS"; // "Successful Serve" (1pt)
+  }
+
+  if (skillKey.includes("RECEIVE") || skillKey.includes("RECEPTION")) {
+    if (isError) return "RECEPTION_ERR";
+    if (outcomeKey.includes("PERFECT") || outcomeKey.includes("EXCELLENT")) return "RECEPTION_EXC";
+    return "RECEPTION_ATT"; // "Reception Attempt" (1pt)
+  }
+
+  if (skillKey.includes("DIG")) {
+    if (isError) return "DIG_ERR";
+    if (outcomeKey.includes("SUCCESS") || outcomeKey.includes("EXCELLENT") || outcomeKey.includes("PERFECT")) return "DIG_EXC";
+    return "DIG_ATT"; // "Dig Attempt" (1pt)
+  }
+
+  if (skillKey.includes("SET")) {
+    if (isError) return "SET_ERR";
+    if (outcomeKey.includes("PERFECT") || outcomeKey.includes("EXCELLENT")) return "SET_EXC";
+    return "SET_RUN"; // "Running Set" (1pt for setter)
+  }
+
+  if (skillKey.includes("ATTACK") || skillKey.includes("SPIKE")) {
+    if (isError || outcomeKey.includes("BLOCKED") || outcomeKey.includes("OUT")) return "ATTACK_ERR";
+    if (outcomeKey.includes("KILL") || outcomeKey.includes("WIN") || outcomeKey.includes("POINT")) return "ATTACK_KILL";
+    return "ATTACK_ATT"; // "Attack Attempt" (0pt)
+  }
+
+  if (skillKey.includes("BLOCK")) {
+    if (isError) return "BLOCK_ERR";
+    if (outcomeKey.includes("POINT") || outcomeKey.includes("KILL")) return "BLOCK_KILL";
+    return null; // PDF says "No need to tally attempts"
+  }
+
   return null;
 }
 
 function calcPlayerPogPoints(p: Player, counts: Record<StatKey, number>): number {
   const role = roleFromPlayer(p);
   const m = POG_MULTIPLIERS[role];
-  return counts.SERVE * m.SERVE + counts.RECEPTION * m.RECEPTION + counts.RECEPTION_FAULT * m.RECEPTION_FAULT +
-    counts.DIG * m.DIG + counts.DIG_FAULT * m.DIG_FAULT + counts.ATTACK * m.ATTACK +
-    counts.BLOCK * m.BLOCK + counts.SET * m.SET + counts.SET_FAULT * m.SET_FAULT;
+  let total = 0;
+  for (const k in counts) {
+    const key = k as StatKey;
+    total += (counts[key] || 0) * (m[key] || 0);
+  }
+  return total;
 }
 
 export type PositionGroup = "OH" | "OPP" | "S" | "L" | "MB" | "OTHER";
+// Counts here are simplified for the UI rankings
 export type PlayerMatchStats = { points: number; kills: number; aces: number; blockPoints: number; errors: number; counts: Record<StatKey, number>; pogPoints: number; };
 export type RankedPlayer = { playerId: string; name: string; teamId: TeamId; position: string; positionGroup: PositionGroup; stats: PlayerMatchStats; };
 
@@ -199,11 +275,9 @@ const positionGroupFromPlayer = (p: Player | null | undefined): PositionGroup =>
 };
 
 function emptyMatchStats(): PlayerMatchStats { return { points: 0, kills: 0, aces: 0, blockPoints: 0, errors: 0, counts: emptyCounts(), pogPoints: 0 }; }
-const WIN_OUTCOMES = new Set(["SUCCESS", "KILL", "KILL_BLOCK", "ACE", "POINT", "WIN", "STUFF", "BLOCK_POINT"]);
-const ERROR_OUTCOMES = new Set(["ERROR", "ATTACK_ERROR", "SERVE_ERROR", "SERVICE_ERROR", "BLOCK_ERROR", "RECEIVE_ERROR", "DIG_ERROR", "FAULT", "OUT", "NET"]);
 
 function isPointByPlayer(ev: InternalEvent): boolean { return !!ev.pointWinner && ev.pointWinner === ev.teamId; }
-function isErrorByPlayer(ev: InternalEvent): boolean { return !!ev.pointWinner && ev.pointWinner !== opponentOf(ev.teamId) && (ERROR_OUTCOMES.has(ev.outcomeKey) || ev.outcomeKey.includes("ERROR") || ev.outcomeKey.includes("FAULT")); }
+function isErrorByPlayer(ev: InternalEvent): boolean { return !!ev.pointWinner && ev.pointWinner !== opponentOf(ev.teamId) && (ev.outcomeKey.includes("ERROR") || ev.outcomeKey.includes("FAULT")); }
 
 function computeMatchStatsFromEvents(params: { players: Player[]; events: InternalEvent[]; }): Record<string, PlayerMatchStats> {
   const { players, events } = params;
@@ -215,16 +289,13 @@ function computeMatchStatsFromEvents(params: { players: Player[]; events: Intern
     const stats = ensure(pid);
     const k = classifyForPog(ev.skillKey, ev.outcomeKey);
     if (k) stats.counts[k] += 1;
-    if (isPointByPlayer(ev)) {
-      stats.points += 1;
-      const sk = ev.skillKey; const ok = ev.outcomeKey;
-      if (WIN_OUTCOMES.has(ok) || ok.includes("KILL") || ok.includes("ACE")) {
-        if (sk.includes("SERVE") && ok.includes("ACE")) stats.aces += 1;
-        else if (sk.includes("SPIKE") || sk.includes("ATTACK")) stats.kills += 1;
-        else if (sk.includes("BLOCK")) stats.blockPoints += 1;
-      }
-    }
-    if (isErrorByPlayer(ev)) stats.errors += 1;
+    
+    // Aggregates for Leaderboard
+    if (k === "ATTACK_KILL") stats.kills++;
+    if (k === "SERVE_ACE") stats.aces++;
+    if (k === "BLOCK_KILL") stats.blockPoints++;
+    if (k?.includes("ERR")) stats.errors++;
+    if (isPointByPlayer(ev)) stats.points++;
   }
   for (const [pid, stats] of Object.entries(out)) {
     const p = players.find((x) => x.id === pid);
@@ -270,7 +341,7 @@ type MatchStore = {
   events: InternalEvent[]; logEvent: (input: { teamId: TeamId; slot: RotationSlot; skill: Skill; outcome: Outcome }) => void;
   undoLastEvent: () => void; undoFromEvent: (eventId: string) => void; endSet: (winner?: TeamId) => void; resetCourt: (teamId: TeamId) => void; resetMatch: () => void;
   
-  // ✅ NEW MANUAL SETTERS
+  // ✅ MANUAL SETTERS
   manualSetScore: (teamId: TeamId, score: number) => void;
   manualSetSets: (teamId: TeamId, sets: number) => void;
   incrementScore: (teamId: TeamId) => void;
@@ -405,17 +476,13 @@ export const useMatchStore = create<MatchStore>()(
           }
 
           let pointWinner: TeamId | undefined;
-          const ERROR_OUTCOMES = new Set(["ERROR", "ATTACK_ERROR", "SERVE_ERROR", "SERVICE_ERROR", "BLOCK_ERROR", "RECEIVE_ERROR", "DIG_ERROR", "FAULT", "OUT", "NET"]);
-          const isError = ERROR_OUTCOMES.has(outcomeKey) || outcomeKey.includes("ERROR") || outcomeKey.includes("FAULT");
-
+          const isError = outcomeKey.includes("ERROR") || outcomeKey.includes("FAULT");
           if (isError) pointWinner = opponentOf(teamId);
           else {
-            const WIN_OUTCOMES = new Set(["SUCCESS", "KILL", "KILL_BLOCK", "ACE", "POINT", "WIN", "STUFF", "BLOCK_POINT"]);
-            const isWin = WIN_OUTCOMES.has(outcomeKey) || outcomeKey.includes("KILL") || outcomeKey.includes("ACE");
-            const isServe = skillKey.includes("SERVE");
-            const isSpike = skillKey.includes("SPIKE") || skillKey.includes("ATTACK") || skillKey === "HIT";
-            const isBlock = skillKey.includes("BLOCK");
-            if ((isServe || isSpike || isBlock) && isWin) pointWinner = teamId;
+            const isWin = outcomeKey.includes("KILL") || outcomeKey.includes("ACE") || outcomeKey.includes("POINT");
+            if ((skillKey.includes("SERVE") || skillKey.includes("SPIKE") || skillKey.includes("BLOCK")) && isWin) {
+              pointWinner = teamId;
+            }
           }
 
           const e: InternalEvent = {
@@ -443,11 +510,9 @@ export const useMatchStore = create<MatchStore>()(
         resetCourt: (teamId) => set((state) => { if (teamId === "A") return { ...state, courtA: emptyCourt(), liberoSwapA: defaultLiberoSwap() }; return { ...state, courtB: emptyCourt(), liberoSwapB: defaultLiberoSwap() }; }),
         resetMatch: () => set((state) => ({ ...state, courtA: emptyCourt(), courtB: emptyCourt(), selected: null, activeScoresheet: null, events: [], scoreA: 0, scoreB: 0, servingTeam: "A", toast: null, rallyCount: 0, rallyInProgress: false, serviceRunTeam: "A", serviceRunCount: 0, liberoSwapA: defaultLiberoSwap(), liberoSwapB: defaultLiberoSwap(), setNumber: 1, setsWonA: 0, setsWonB: 0, savedSets: [], setRules: defaultSetRules(), matchSummaryOpen: false })),
 
-        // ✅ MANUAL ACTIONS
         manualSetScore: (teamId, score) => set((state) => ({ ...state, scoreA: teamId === "A" ? score : state.scoreA, scoreB: teamId === "B" ? score : state.scoreB })),
         manualSetSets: (teamId, sets) => set((state) => ({ ...state, setsWonA: teamId === "A" ? sets : state.setsWonA, setsWonB: teamId === "B" ? sets : state.setsWonB })),
 
-        // ✅ INCREMENT SCORE: Adds point, Rotates if sideout, Runs Libero logic (For BOTH TEAMS)
         incrementScore: (teamId: TeamId) => set((state) => {
           let { scoreA, scoreB, servingTeam, courtA, courtB, liberoConfigA, liberoConfigB, liberoSwapA, liberoSwapB, players } = state;
           
@@ -461,7 +526,7 @@ export const useMatchStore = create<MatchStore>()(
 
           if (teamId !== servingTeam) {
             nextServingTeam = teamId;
-            // 1. Handle Sideout Team (Winner): Rotate + AutoSub
+            // 1. Handle Winner: Rotate + AutoSub
             const sideoutTeamId = teamId;
             const isLeft = state.leftTeam === sideoutTeamId;
             const courtToRotate = sideoutTeamId === "A" ? nextCourtA : nextCourtB;
@@ -482,8 +547,7 @@ export const useMatchStore = create<MatchStore>()(
               if (applied.toast) toast = applied.toast;
             }
 
-            // 2. Handle Losing Team (Loser): AutoSub Only (e.g. MB finished serving)
-            // They don't rotate, but they are no longer serving, so Libero might need to swap in.
+            // 2. Handle Loser: AutoSub Only
             const losingTeamId = opponentOf(teamId);
             const configL = losingTeamId === "A" ? liberoConfigA : liberoConfigB;
             const swapL = losingTeamId === "A" ? nextSwapA : nextSwapB;
@@ -493,11 +557,9 @@ export const useMatchStore = create<MatchStore>()(
                 teamId: losingTeamId, court: courtL, players, config: configL, swap: swapL, servingTeam: nextServingTeam
             });
 
-            // We accept the swap if valid
             if (!hasIllegalLiberoFrontRow(appliedL.court, players)) {
                if (losingTeamId === "A") { nextCourtA = appliedL.court; nextSwapA = appliedL.swap; }
                else { nextCourtB = appliedL.court; nextSwapB = appliedL.swap; }
-               // Priorities toast for winner if both trigger
                if (appliedL.toast && !toast) toast = appliedL.toast;
             }
           }
@@ -526,18 +588,13 @@ export const useMatchStore = create<MatchStore>()(
     },
     {
       name: "vb-match-store",
-      version: 6,
+      version: 7, // Incrementing version to force clean state due to stat key changes
       migrate: (persisted: any) => {
         const state = persisted?.state ?? persisted ?? {};
         const players = Array.isArray(state.players) ? state.players : [];
         const validPlayerIds = new Set(players.map((p: any) => p.id));
-        const cleanMbIds = (ids: any) => {
-          if (!Array.isArray(ids)) return [];
-          return ids.filter((id: string) => validPlayerIds.has(id));
-        };
-        const cleanLiberoId = (id: any) => {
-          return validPlayerIds.has(id) ? id : null;
-        };
+        const cleanMbIds = (ids: any) => (Array.isArray(ids) ? ids.filter((id: string) => validPlayerIds.has(id)) : []);
+        const cleanLiberoId = (id: any) => (validPlayerIds.has(id) ? id : null);
         return {
           ...state,
           liberoConfigA: { ...defaultLiberoConfig(), ...(state.liberoConfigA ?? {}), liberoId: cleanLiberoId(state.liberoConfigA?.liberoId), mbIds: cleanMbIds(state.liberoConfigA?.mbIds) },
