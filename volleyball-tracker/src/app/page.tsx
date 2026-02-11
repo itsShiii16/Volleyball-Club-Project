@@ -6,6 +6,7 @@ import BenchRail from "@/components/Court/Bench/BenchRail";
 import MatchSummaryModal from "@/components/MatchSummary/MatchSummaryModal";
 import EventLogRail from "@/components/EventLogRail";
 import ActionSidebar from "@/components/ActionSidebar";
+import ScoresheetPanel from "@/components/Court/Scoresheet/ScoresheetPanel";
 
 import { useMemo, useState, useCallback, useEffect, useRef } from "react";
 import { useMatchStore } from "@/store/matchStore";
@@ -37,15 +38,22 @@ export default function Home() {
   const leftTeam = useMatchStore((s) => s.leftTeam);
   const swapSides = useMatchStore((s) => s.swapSides);
   const rightTeam = opponentOf(leftTeam);
+  
+  // Scoring
   const scoreA = useMatchStore((s) => s.scoreA);
   const scoreB = useMatchStore((s) => s.scoreB);
   
-  // Rules
+  // Rules & Sets
   const setRules = useMatchStore((s) => s.setRules);
   const updateSetRules = useMatchStore((s) => s.updateSetRules);
   const setNumber = useMatchStore((s) => s.setNumber);
   const setsWonA = useMatchStore((s) => s.setsWonA);
   const setsWonB = useMatchStore((s) => s.setsWonB);
+  
+  // Actions
+  const incrementScore = useMatchStore((s) => s.incrementScore);
+  const decrementScore = useMatchStore((s) => s.decrementScore);
+  const manualSetSets = useMatchStore((s) => s.manualSetSets);
 
   // Match Summary
   const openMatchSummary = useMatchStore((s) => s.openMatchSummary);
@@ -60,8 +68,7 @@ export default function Home() {
 
   const [teamNameA, setTeamNameA] = useState("TEAM A NAME");
   const [teamNameB, setTeamNameB] = useState("TEAM B NAME");
-  const [setsA, setSetsA] = useState(0); 
-  const [setsB, setSetsB] = useState(0);
+  
   const [timeoutsA, setTimeoutsA] = useState([false, false, false]);
   const [timeoutsB, setTimeoutsB] = useState([false, false, false]);
 
@@ -85,12 +92,6 @@ export default function Home() {
   useEffect(() => {
     return () => restoreScroll();
   }, [restoreScroll]);
-
-  // Sync UI sets with Store sets
-  useEffect(() => {
-    setSetsA(setsWonA);
-    setSetsB(setsWonB);
-  }, [setsWonA, setsWonB]);
 
   function onDragStart(_: DragStartEvent) {
     document.documentElement.style.overflow = "hidden";
@@ -149,7 +150,6 @@ export default function Home() {
     return () => { if (toastTimer.current) window.clearTimeout(toastTimer.current); };
   }, [toast, clearToast]);
 
-  // ✅ SCALED UP BUTTON STYLES
   const btnBase = "px-4 py-2 sm:px-6 sm:py-3 text-xs sm:text-base font-bold rounded-xl shadow-md transition-all active:scale-95 border border-transparent tracking-wide";
   const btnWhite = `${btnBase} bg-white text-gray-900 hover:bg-gray-100 hover:shadow-lg`;
   const btnDark = `${btnBase} bg-gray-800 text-white hover:bg-gray-700`;
@@ -157,11 +157,17 @@ export default function Home() {
   const btnRed = `${btnBase} bg-red-600 text-white hover:bg-red-700`;
   const btnDisabled = `${btnBase} bg-gray-700 text-gray-500 cursor-not-allowed shadow-none`;
 
+  const adjustSets = (teamId: "A" | "B", delta: number) => {
+    const current = teamId === "A" ? setsWonA : setsWonB;
+    const newVal = Math.max(0, Math.min(5, current + delta));
+    manualSetSets(teamId, newVal);
+  };
+
   return (
     <div className="flex h-screen w-full overflow-hidden bg-[var(--background)] text-white">
       
-      {/* 🟢 LEFT: Event Log Rail (Hidden on Mobile) */}
-      <div className="hidden xl:block w-72 shrink-0 border-r border-white/10 shadow-sm z-10 overflow-hidden bg-white/5 backdrop-blur-sm">
+      {/* 🟢 LEFT: Event Log Rail (Hidden on smaller laptops to save space, visible on large screens) */}
+      <div className="hidden xl:block w-52 shrink-0 border-r border-white/10 shadow-sm z-10 overflow-hidden bg-white/5 backdrop-blur-sm">
         <EventLogRail />
       </div>
 
@@ -169,12 +175,9 @@ export default function Home() {
       <div className="flex-1 overflow-y-auto">
         <main className="min-h-full p-3 sm:p-6 lg:p-8 flex flex-col">
           <DndContext sensors={sensors} onDragStart={onDragStart} onDragCancel={onDragCancel} onDragEnd={onDragEnd}>
-            
-            {/* Wrapper: Increased max-width to fill screen */}
             <div className="w-full max-w-[1800px] mx-auto flex flex-col gap-4 sm:gap-8 pb-20 flex-1">
               <MatchSummaryModal />
 
-              {/* Toast */}
               {toast && (
                 <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[999] px-4 pointer-events-none">
                   <div className={`w-full max-w-lg rounded-2xl shadow-2xl border-2 px-6 py-4 flex items-start gap-4 pointer-events-auto transition-all duration-200 ease-out animate-[toastIn_0.18s_ease-out] ${toast.type === "error" ? "bg-red-600 text-white border-red-400" : "bg-sky-600 text-white border-sky-400"}`} role="status">
@@ -184,15 +187,10 @@ export default function Home() {
                 </div>
               )}
 
-              {/* === ROW 1: HEADER CONTROLS === */}
+              {/* ROW 1: HEADER */}
               <div className="flex flex-wrap items-center justify-between gap-3">
-                {/* Left: Summary/Roster/Rules */}
                 <div className="flex gap-2 sm:gap-3 flex-wrap">
-                  <button 
-                    onClick={openMatchSummary} 
-                    disabled={savedSetsCount === 0} 
-                    className={savedSetsCount > 0 ? btnWhite : btnDisabled}
-                  >
+                  <button onClick={openMatchSummary} disabled={savedSetsCount === 0} className={savedSetsCount > 0 ? btnWhite : btnDisabled}>
                     MATCH SUMMARY {savedSetsCount > 0 && `(${savedSetsCount})`}
                   </button>
                   <button onClick={() => router.push("/setup")} className={btnWhite}>ROSTER</button>
@@ -201,14 +199,10 @@ export default function Home() {
                     <span className="bg-gray-700 px-2 py-0.5 rounded text-xs uppercase tracking-wider">Bo{setRules.bestOf}</span>
                   </button>
                 </div>
-
-                {/* Center: Reset/Undo */}
                 <div className="flex gap-2 sm:gap-3">
-                  <button onClick={handleReset} className={btnRed}>RESET</button>
+                  <button onClick={handleReset} className={btnRed}>RESET MATCH</button>
                   <button onClick={undoLastEvent} disabled={!canUndo} className={canUndo ? btnDark : btnDisabled}>UNDO</button>
                 </div>
-
-                {/* Right: Swap/Rot */}
                 <div className="flex gap-2 sm:gap-3">
                   <button onClick={swapSides} className={btnWhite}>SWAP</button>
                   <button onClick={rotateLeftSide} className={btnWhite}>ROT L</button>
@@ -216,28 +210,34 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* === ROW 2: SERVE BUTTONS (Centered & Large) === */}
+              {/* ROW 2: SERVE */}
               <div className="flex flex-wrap justify-center gap-4 sm:gap-6 py-2">
-                 <button onClick={() => setServingTeam("A")} className={servingTeam === "A" ? btnBlue : btnWhite}>
-                    Serve Team A
-                  </button>
-                  <button onClick={() => setServingTeam("B")} className={servingTeam === "B" ? btnBlue : btnWhite}>
-                    Serve Team B
-                  </button>
+                 <button onClick={() => setServingTeam("A")} className={servingTeam === "A" ? btnBlue : btnWhite}>Serve Team A</button>
+                 <button onClick={() => setServingTeam("B")} className={servingTeam === "B" ? btnBlue : btnWhite}>Serve Team B</button>
               </div>
 
-              {/* === ROW 3: SCOREBOARD & NAMES === */}
+              {/* ROW 3: SCOREBOARD */}
               <div className="flex flex-col gap-4 items-center w-full">
                 <div className="flex items-center gap-4">
                     <div className="text-[10px] sm:text-xs font-bold text-gray-400 uppercase tracking-[0.2em]">
-                    Set {setNumber} • Target {currentTargetPoints}
+                      Set {setNumber} • Target {currentTargetPoints}
                     </div>
-                    <div className="bg-white px-4 sm:px-8 py-1.5 rounded-full text-xs sm:text-sm font-black text-gray-900 shadow-md">
-                    SETS: {setsWonA} - {setsWonB}
+                    {/* MANUAL SETS ADJUSTMENT */}
+                    <div className="bg-white px-4 py-1.5 rounded-full shadow-md flex items-center gap-4">
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => adjustSets("A", -1)} className="w-5 h-5 rounded-full bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold leading-none flex items-center justify-center">-</button>
+                        <span className="text-sm font-black text-gray-900">{setsWonA}</span>
+                        <button onClick={() => adjustSets("A", 1)} className="w-5 h-5 rounded-full bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold leading-none flex items-center justify-center">+</button>
+                      </div>
+                      <span className="text-xs font-bold text-gray-400">SETS</span>
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => adjustSets("B", -1)} className="w-5 h-5 rounded-full bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold leading-none flex items-center justify-center">-</button>
+                        <span className="text-sm font-black text-gray-900">{setsWonB}</span>
+                        <button onClick={() => adjustSets("B", 1)} className="w-5 h-5 rounded-full bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold leading-none flex items-center justify-center">+</button>
+                      </div>
                     </div>
                 </div>
 
-                {/* Main Grid: STACKS on Mobile (flex-col), Grid on Large Screens (lg:grid) */}
                 <div className="flex flex-col lg:grid lg:grid-cols-[1fr_auto_1fr] w-full gap-4 sm:gap-8 items-center lg:items-end">
                   
                   {/* Left Side */}
@@ -253,20 +253,30 @@ export default function Home() {
                     </div>
                   </div>
 
-                  {/* Center: Clear Left - SCORE - Clear Right */}
+                  {/* Center: Score + Manual Adjustments */}
                   <div className="flex items-end gap-3 sm:gap-6 pb-2">
                     <button onClick={clearLeftSide} className="mb-2 sm:mb-4 px-3 sm:px-4 py-2 rounded-xl bg-gray-800 text-gray-400 text-[10px] sm:text-xs font-bold hover:bg-red-600 hover:text-white shadow-md transition uppercase tracking-wide">
                       Clear
                     </button>
 
                     <div className="flex items-center gap-2 sm:gap-4 bg-gray-900/50 p-2 sm:p-4 rounded-3xl backdrop-blur-sm border border-white/5">
-                      {/* Hidden Increments for logic, ScoreControl handles display */}
-                      <button onClick={() => setSetsA((v) => Math.min(5, v + 1))} className="hidden">Inc</button>
-                      <button onClick={() => setSetsA((v) => Math.max(0, v - 1))} className="hidden">Dec</button>
                       
-                      <ScoreControl value={scoreA} teamId="A" />
+                      {/* SCORE A */}
+                      <div className="flex flex-col items-center gap-1">
+                        <button onClick={() => incrementScore("A")} className="w-full h-8 bg-white/10 hover:bg-white/20 rounded-t-xl flex items-center justify-center text-xs text-white transition">▲</button>
+                        <ScoreControl value={scoreA} teamId="A" />
+                        <button onClick={() => decrementScore("A")} className="w-full h-8 bg-white/10 hover:bg-white/20 rounded-b-xl flex items-center justify-center text-xs text-white transition">▼</button>
+                      </div>
+
                       <span className="text-4xl sm:text-6xl font-black text-white/20 pb-2 sm:pb-4">-</span>
-                      <ScoreControl value={scoreB} teamId="B" />
+                      
+                      {/* SCORE B */}
+                      <div className="flex flex-col items-center gap-1">
+                        <button onClick={() => incrementScore("B")} className="w-full h-8 bg-white/10 hover:bg-white/20 rounded-t-xl flex items-center justify-center text-xs text-white transition">▲</button>
+                        <ScoreControl value={scoreB} teamId="B" />
+                        <button onClick={() => decrementScore("B")} className="w-full h-8 bg-white/10 hover:bg-white/20 rounded-b-xl flex items-center justify-center text-xs text-white transition">▼</button>
+                      </div>
+
                     </div>
 
                     <button onClick={clearRightSide} className="mb-2 sm:mb-4 px-3 sm:px-4 py-2 rounded-xl bg-gray-800 text-gray-400 text-[10px] sm:text-xs font-bold hover:bg-red-600 hover:text-white shadow-md transition uppercase tracking-wide">
@@ -290,37 +300,41 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* === ROW 4: BENCH & COURT === */}
-              {/* ✅ RESPONSIVE: Stacks on mobile (flex-col), Grid on Desktop (lg:grid) */}
+              {/* ROW 4: COURT */}
               <div className="flex flex-col lg:grid lg:grid-cols-[160px_1fr_160px] gap-6 items-start flex-1 min-h-0">
-                {/* Mobile: Order 2 (Under Bench A) -> Desktop: Order 1 (Left) */}
                 <div className="order-2 lg:order-1 flex justify-center w-full lg:w-auto">
                   <BenchRail teamId={leftTeam} />
                 </div>
-                
-                {/* Mobile: Order 1 (Top) -> Desktop: Order 2 (Middle) */}
                 <div className="order-1 lg:order-2 w-full h-full min-h-[300px]">
                   <Court />
                 </div>
-
-                {/* Mobile: Order 3 (Bottom) -> Desktop: Order 3 (Right) */}
                 <div className="order-3 flex justify-center w-full lg:w-auto">
                   <BenchRail teamId={rightTeam} />
                 </div>
               </div>
 
               <SlotPanel />
+              
+              {/* ✅ THIS IS THE FIX: */}
+              {/* The mobile popup (ScoresheetPanel) is HIDDEN on Large screens (lg:hidden). */}
+              {/* This stops it from popping up over the court when the Static Sidebar is visible. */}
+              <div className="lg:hidden">
+                <ScoresheetPanel />
+              </div>
+
             </div>
           </DndContext>
         </main>
       </div>
 
       {/* 🟢 RIGHT: Action Sidebar */}
-      <div className="hidden xl:block w-80 shrink-0 border-l border-white/10 shadow-sm z-10 overflow-hidden bg-white/5 backdrop-blur-sm">
+      {/* VISIBLE on Large Screens (lg:block). This is the static sidebar you want. */}
+      {/* Reduced width slightly to 20rem (w-80 -> w-64) to fit better on laptops */}
+      <div className="hidden lg:block w-64 shrink-0 border-l border-white/10 shadow-sm z-10 overflow-hidden bg-white/5 backdrop-blur-sm">
         <ActionSidebar />
       </div>
 
-      {/* 🟢 MODAL: Rules Settings */}
+      {/* MODAL: Rules Settings */}
       {isRulesOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
           <div className="w-full max-w-sm bg-white rounded-3xl shadow-2xl overflow-hidden text-gray-900 border-4 border-gray-100">
@@ -354,16 +368,12 @@ export default function Home() {
           </div>
         </div>
       )}
-
     </div>
   );
 }
 
-// --- SUB COMPONENTS ---
-
 function ScoreControl({ value, teamId }: { value: number, teamId: "A" | "B" }) {
   return (
-    // ✅ RESPONSIVE TEXT: Scales from 5xl (mobile) to 8xl (desktop)
     <div className="bg-white min-w-[80px] sm:min-w-[140px] text-center py-2 sm:py-4 rounded-3xl shadow-2xl border-4 border-white/50">
       <span className="text-5xl sm:text-8xl font-black text-gray-900 tracking-tighter leading-none block">
         {value}
