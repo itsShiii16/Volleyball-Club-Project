@@ -13,6 +13,20 @@ const normKey = (v: unknown) =>
 
 type PosBucket = "OH" | "OPP" | "S" | "L" | "MB" | "OTHER";
 
+// ✅ STRICT TYPE DEFINITION
+type RankedItem = {
+  playerId: string;
+  pogPoints: number;
+  teamId: string;
+  name: string;
+  jersey: string; // Explicitly defined
+  position: string;
+  bucket: PosBucket;
+  pointCredits: number;
+  errorCredits: number;
+  setsPlayed: number;
+};
+
 function bucketFromPosition(posRaw: unknown): PosBucket {
   const p = normKey(posRaw);
   if (p === "MB" || p.includes("MIDDLE")) return "MB";
@@ -23,51 +37,21 @@ function bucketFromPosition(posRaw: unknown): PosBucket {
   return "OTHER";
 }
 
-// Calculate Stats for a Player or Team
-const calculateSheetStats = (playerId: string | "TEAM", teamId: TeamId, events: any[]) => {
+const calculatePlayerStats = (playerId: string, events: any[]) => {
   const stats = {
-    points: 0,
-    spikes: { won: 0, total: 0 },
-    blocks: { won: 0 },
-    serves: { ace: 0 },
-    oppError: 0,
-    dig: { exc: 0, total: 0, fault: 0 },
-    set: { exc: 0, total: 0, fault: 0 },
-    receive: { exc: 0, total: 0, fault: 0 },
+    points: 0, spikes: { won: 0, total: 0 }, blocks: { won: 0 }, serves: { ace: 0 },
+    dig: { exc: 0, total: 0, fault: 0 }, set: { exc: 0, total: 0, fault: 0 }, receive: { exc: 0, total: 0, fault: 0 },
   };
-
   for (const ev of events) {
-    const isActor = (playerId === "TEAM") ? (ev.teamId === teamId) : (ev.playerId === playerId);
-    
-    // Opponent Error Points (Team only)
-    if (playerId === "TEAM" && ev.pointWinner === teamId && ev.teamId !== teamId) {
-       stats.oppError++;
-       stats.points++;
-    }
-
-    if (!isActor) continue;
-
+    if (ev.playerId !== playerId) continue;
     const skill = ev.skillKey || "";
     const outcome = ev.outcomeKey || "";
-
-    // SCORING
     if (skill.includes("SPIKE") || skill.includes("ATTACK")) {
       stats.spikes.total++;
-      if (outcome.includes("KILL") || outcome.includes("WIN")) {
-        stats.spikes.won++;
-        stats.points++;
-      }
+      if (outcome.includes("KILL") || outcome.includes("WIN")) { stats.spikes.won++; stats.points++; }
     }
-    if (skill.includes("BLOCK") && (outcome.includes("POINT") || outcome.includes("KILL"))) {
-        stats.blocks.won++;
-        stats.points++;
-    }
-    if (skill.includes("SERVE") && outcome.includes("ACE")) {
-        stats.serves.ace++;
-        stats.points++;
-    }
-
-    // NON-SCORING
+    if (skill.includes("BLOCK") && (outcome.includes("POINT") || outcome.includes("KILL"))) { stats.blocks.won++; stats.points++; }
+    if (skill.includes("SERVE") && outcome.includes("ACE")) { stats.serves.ace++; stats.points++; }
     if (skill.includes("DIG")) {
       stats.dig.total++;
       if (outcome.includes("SUCCESS") || outcome.includes("PERFECT")) stats.dig.exc++;
@@ -87,6 +71,14 @@ const calculateSheetStats = (playerId: string | "TEAM", teamId: TeamId, events: 
   return stats;
 };
 
+const calculateOppErrors = (teamId: TeamId, events: any[]) => {
+    let count = 0;
+    for (const ev of events) {
+        if (ev.pointWinner === teamId && ev.teamId !== teamId) count++;
+    }
+    return count;
+};
+
 export default function MatchSummaryModal() {
   const open = useMatchStore((s) => s.matchSummaryOpen);
   const close = useMatchStore((s) => s.closeMatchSummary);
@@ -98,7 +90,6 @@ export default function MatchSummaryModal() {
   const [sheetTab, setSheetTab] = useState<TeamId>("A");
   const [filterSetId, setFilterSetId] = useState<string | "ALL">("ALL");
 
-  // --- FILTERED DATA ---
   const filteredSets = useMemo(() => {
     if (filterSetId === "ALL") return savedSets;
     return savedSets.filter(s => s.id === filterSetId);
@@ -109,26 +100,45 @@ export default function MatchSummaryModal() {
   }, [filteredSets]);
 
   const sheetData = useMemo(() => {
-    // Sets Played Calculation
     const setsPlayedMap: Record<string, number> = {};
     filteredSets.forEach(set => {
         const activeIds = new Set<string>();
-        if (set.events) {
-            set.events.forEach(e => activeIds.add(e.playerId));
-        }
-        activeIds.forEach(pid => {
-            setsPlayedMap[pid] = (setsPlayedMap[pid] || 0) + 1;
-        });
+        if (set.events) { set.events.forEach(e => activeIds.add(e.playerId)); }
+        activeIds.forEach(pid => { setsPlayedMap[pid] = (setsPlayedMap[pid] || 0) + 1; });
     });
 
-    const teamAPlayers = players.filter(p => p.teamId === "A").sort((a, b) => Number(a.jerseyNumber) - Number(b.jerseyNumber));
-    const teamBPlayers = players.filter(p => p.teamId === "B").sort((a, b) => Number(a.jerseyNumber) - Number(b.jerseyNumber));
+    // ✅ Defensive check for jerseyNumber existence
+    const teamAPlayers = players.filter(p => p.teamId === "A").sort((a, b) => Number(a.jerseyNumber || 0) - Number(b.jerseyNumber || 0));
+    const teamBPlayers = players.filter(p => p.teamId === "B").sort((a, b) => Number(a.jerseyNumber || 0) - Number(b.jerseyNumber || 0));
 
-    const rowsA = teamAPlayers.map(p => ({ player: p, stats: calculateSheetStats(p.id, "A", activeEvents), setsPlayed: setsPlayedMap[p.id] || 0 }));
-    const rowsB = teamBPlayers.map(p => ({ player: p, stats: calculateSheetStats(p.id, "B", activeEvents), setsPlayed: setsPlayedMap[p.id] || 0 }));
+    const rowsA = teamAPlayers.map(p => ({ player: p, stats: calculatePlayerStats(p.id, activeEvents), setsPlayed: setsPlayedMap[p.id] || 0 }));
+    const rowsB = teamBPlayers.map(p => ({ player: p, stats: calculatePlayerStats(p.id, activeEvents), setsPlayed: setsPlayedMap[p.id] || 0 }));
 
-    const totalA = calculateSheetStats("TEAM", "A", activeEvents);
-    const totalB = calculateSheetStats("TEAM", "B", activeEvents);
+    const sumRows = (rows: typeof rowsA) => {
+        const t = { points: 0, spikes: { won: 0, total: 0 }, blocks: { won: 0 }, serves: { ace: 0 }, oppError: 0, dig: { exc: 0, total: 0, fault: 0 }, set: { exc: 0, total: 0, fault: 0 }, receive: { exc: 0, total: 0, fault: 0 } };
+        rows.forEach(r => {
+            t.spikes.won += r.stats.spikes.won; t.spikes.total += r.stats.spikes.total; t.blocks.won += r.stats.blocks.won; t.serves.ace += r.stats.serves.ace;
+            t.dig.exc += r.stats.dig.exc; t.dig.total += r.stats.dig.total; t.dig.fault += r.stats.dig.fault;
+            t.set.exc += r.stats.set.exc; t.set.total += r.stats.set.total; t.set.fault += r.stats.set.fault;
+            t.receive.exc += r.stats.receive.exc; t.receive.total += r.stats.receive.total; t.receive.fault += r.stats.receive.fault;
+        });
+        return t;
+    };
+
+    const totalA = sumRows(rowsA);
+    const totalB = sumRows(rowsB);
+
+    const actualScoreA = filteredSets.reduce((sum, s) => sum + s.finalScoreA, 0);
+    const actualScoreB = filteredSets.reduce((sum, s) => sum + s.finalScoreB, 0);
+
+    totalA.points = actualScoreA;
+    totalB.points = actualScoreB;
+
+    const earnedA = totalA.spikes.won + totalA.blocks.won + totalA.serves.ace;
+    const earnedB = totalB.spikes.won + totalB.blocks.won + totalB.serves.ace;
+
+    totalA.oppError = Math.max(0, totalA.points - earnedA);
+    totalB.oppError = Math.max(0, totalB.points - earnedB);
 
     const setsWonA = savedSets.filter(s => s.winner === "A").length;
     const setsWonB = savedSets.filter(s => s.winner === "B").length;
@@ -144,13 +154,7 @@ export default function MatchSummaryModal() {
 
     for (const set of filteredSets) {
       const activeIds = new Set<string>();
-      if (set.perPlayer) {
-        for (const [pid, data] of Object.entries(set.perPlayer)) {
-          totalsPog[pid] = (totalsPog[pid] ?? 0) + Number(data?.pogPoints ?? 0);
-          activeIds.add(pid);
-        }
-      }
-      
+      if (set.perPlayer) { for (const [pid, data] of Object.entries(set.perPlayer)) { totalsPog[pid] = (totalsPog[pid] ?? 0) + Number(data?.pogPoints ?? 0); activeIds.add(pid); } }
       const events = Array.isArray(set.events) ? set.events : [];
       for (const ev of events as any[]) {
         const pid = String(ev?.playerId ?? "");
@@ -165,55 +169,48 @@ export default function MatchSummaryModal() {
     }
 
     const ranked = Object.entries(totalsPog)
-      .map(([playerId, points]) => {
+      .map(([playerId, points]): RankedItem | null => {
         const p = players.find((x) => x.id === playerId);
-        const bucket = bucketFromPosition(p?.position);
+        if (!p) return null;
+        const bucket = bucketFromPosition(p.position);
         return {
-          playerId, pogPoints: points, teamId: p?.teamId ?? "?", name: p?.name ?? "Unknown", jersey: p?.jerseyNumber ?? "",
-          position: (p?.position as any) ?? "", bucket, pointCredits: pointsWon[playerId] ?? 0, errorCredits: pointsLost[playerId] ?? 0, setsPlayed: setsPlayedMap[playerId] ?? 0,
+          playerId, pogPoints: points, teamId: p.teamId, name: p.name, 
+          jersey: String(p.jerseyNumber || "?"), // ✅ Safe string conversion
+          position: (p.position as any) ?? "", bucket, pointCredits: pointsWon[playerId] ?? 0, errorCredits: pointsLost[playerId] ?? 0, setsPlayed: setsPlayedMap[playerId] ?? 0,
         };
       })
-      .sort((a, b) => b.pogPoints - a.pogPoints);
+      .filter((item): item is RankedItem => item !== null);
+
+    ranked.sort((a, b) => b.pogPoints - a.pogPoints);
 
     const pog = ranked[0] ?? null;
-    const byPosition: Record<PosBucket, typeof ranked> = { OH: [], OPP: [], S: [], L: [], MB: [], OTHER: [] };
-    for (const r of ranked) byPosition[r.bucket].push(r);
+    // ✅ Safe initialization of Record
+    const byPosition: Record<PosBucket, RankedItem[]> = { OH: [], OPP: [], S: [], L: [], MB: [], OTHER: [] };
+    for (const r of ranked) {
+        if (byPosition[r.bucket]) {
+            byPosition[r.bucket].push(r);
+        } else {
+            // Fallback if bucket is somehow invalid
+            byPosition.OTHER.push(r);
+        }
+    }
 
     return { ranked, pog, byPosition };
   }, [filteredSets, players]);
 
-  // ✅ 1. EXPORT JSON (BACKUP)
   const handleExportJSON = () => {
-    const exportData = {
-        metadata: { date: new Date().toISOString(), type: "FULL_MATCH_JSON" },
-        teams: { scoreA: sheetData.setsWonA, scoreB: sheetData.setsWonB },
-        roster: players,
-        history: savedSets,
-    };
+    const exportData = { metadata: { date: new Date().toISOString(), type: "FULL_MATCH_JSON" }, teams: { scoreA: sheetData.setsWonA, scoreB: sheetData.setsWonB }, roster: players, history: savedSets };
     downloadFile(JSON.stringify(exportData, null, 2), "match_backup.json", "application/json");
   };
 
-  // ✅ 2. EXPORT CSV (READABLE IN EXCEL)
   const handleExportCSV = () => {
-    // Header Row
     let csv = "Team,Jersey,Name,Sets,Points,Spike Won,Spike Total,Block Kill,Serve Ace,Dig Exc,Dig Total,Set Exc,Set Total,Rec Exc,Rec Total,Rec Error\n";
-
-    // Team A Rows
     sheetData.rowsA.forEach(r => {
-        csv += `A,${r.player.jerseyNumber},${r.player.name},${r.setsPlayed},${r.stats.points},` +
-               `${r.stats.spikes.won},${r.stats.spikes.total},${r.stats.blocks.won},${r.stats.serves.ace},` +
-               `${r.stats.dig.exc},${r.stats.dig.total},${r.stats.set.exc},${r.stats.set.total},` +
-               `${r.stats.receive.exc},${r.stats.receive.total},${r.stats.receive.fault}\n`;
+        csv += `A,${r.player.jerseyNumber || ""},${r.player.name},${r.setsPlayed},${r.stats.points},${r.stats.spikes.won},${r.stats.spikes.total},${r.stats.blocks.won},${r.stats.serves.ace},${r.stats.dig.exc},${r.stats.dig.total},${r.stats.set.exc},${r.stats.set.total},${r.stats.receive.exc},${r.stats.receive.total},${r.stats.receive.fault}\n`;
     });
-
-    // Team B Rows
     sheetData.rowsB.forEach(r => {
-        csv += `B,${r.player.jerseyNumber},${r.player.name},${r.setsPlayed},${r.stats.points},` +
-               `${r.stats.spikes.won},${r.stats.spikes.total},${r.stats.blocks.won},${r.stats.serves.ace},` +
-               `${r.stats.dig.exc},${r.stats.dig.total},${r.stats.set.exc},${r.stats.set.total},` +
-               `${r.stats.receive.exc},${r.stats.receive.total},${r.stats.receive.fault}\n`;
+        csv += `B,${r.player.jerseyNumber || ""},${r.player.name},${r.setsPlayed},${r.stats.points},${r.stats.spikes.won},${r.stats.spikes.total},${r.stats.blocks.won},${r.stats.serves.ace},${r.stats.dig.exc},${r.stats.dig.total},${r.stats.set.exc},${r.stats.set.total},${r.stats.receive.exc},${r.stats.receive.total},${r.stats.receive.fault}\n`;
     });
-
     downloadFile(csv, `match_summary_${new Date().toISOString().split('T')[0]}.csv`, "text/csv");
   };
 
@@ -254,14 +251,8 @@ export default function MatchSummaryModal() {
             </div>
 
             <div className="flex items-center gap-2">
-                {/* ✅ CSV EXPORT (For Excel) */}
-                <button onClick={handleExportCSV} className="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-white font-bold transition text-xs flex items-center gap-1 shadow-sm">
-                    <span>📊</span> EXPORT CSV
-                </button>
-                {/* ✅ JSON EXPORT (For Backup) */}
-                <button onClick={handleExportJSON} className="px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-white font-bold transition text-xs flex items-center gap-1 shadow-sm">
-                    <span>💾</span> JSON
-                </button>
+                <button onClick={handleExportCSV} className="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-white font-bold transition text-xs flex items-center gap-1 shadow-sm"><span>📊</span> EXPORT CSV</button>
+                <button onClick={handleExportJSON} className="px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-white font-bold transition text-xs flex items-center gap-1 shadow-sm"><span>💾</span> JSON</button>
                 <div className="w-px h-6 bg-gray-700 mx-1"></div>
                 <button onClick={close} className="p-2 bg-white/10 hover:bg-white/20 rounded-lg text-white font-bold transition text-xs">✕ CLOSE</button>
             </div>
@@ -278,9 +269,6 @@ export default function MatchSummaryModal() {
 
         {/* CONTENT */}
         <div className="flex-1 overflow-hidden bg-gray-100 flex flex-col">
-          {/* ... (Existing Render Logic for Table & Rankings remains exactly the same) ... */}
-          {/* I will include the Render Logic briefly to ensure the file is complete */}
-          
           {viewMode === "sheet" && (
             <div className="flex flex-col h-full">
               <div className="shrink-0 flex border-b bg-white">
@@ -377,46 +365,53 @@ export default function MatchSummaryModal() {
           {viewMode === "rankings" && (
             <div className="flex-1 overflow-auto p-6">
               <div className="grid grid-cols-1 lg:grid-cols-[1.2fr_1fr] gap-6">
-                <div className="rounded-xl bg-white border p-6 shadow-sm">
-                  <div className="font-black text-sm mb-4 text-gray-400 uppercase tracking-widest">Match History</div>
-                  {savedSets.length === 0 ? <div className="text-sm text-gray-400 italic">No saved sets yet.</div> : (
-                    <div className="flex flex-col gap-3">
-                      {sortedSets.map(s => (
-                        <div key={s.id} className="flex items-center justify-between p-4 rounded-lg bg-gray-50 border">
-                          <div><div className="font-black text-gray-900">Set {s.setNumber}</div><div className="text-xs text-gray-500">{fmtTime(s.ts)}</div></div>
-                          <div className="text-right"><div className="font-black text-xl">{s.finalScoreA} - {s.finalScoreB}</div><div className="text-[10px] font-bold uppercase text-gray-400">Winner: Team {s.winner}</div></div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                <div className="flex flex-col gap-6">
-                  {rankingsData.pog && (
+                 {rankingsData.pog ? (
                     <div className="rounded-xl bg-gradient-to-br from-yellow-100 to-white border border-yellow-200 p-6 shadow-sm">
-                      <div className="text-xs font-bold uppercase text-yellow-600 mb-2">{filterSetId === "ALL" ? "Player of the Game" : `Top Performer (Set ${savedSets.find(s=>s.id === filterSetId)?.setNumber})`}</div>
-                      <div className="flex items-end justify-between">
-                        <div><div className="text-3xl font-black text-gray-900">#{rankingsData.pog.jersey} {rankingsData.pog.name}</div><div className="text-sm text-gray-600 font-bold mt-1">Team {rankingsData.pog.teamId} • {rankingsData.pog.position} • {rankingsData.pog.setsPlayed} Sets Played</div></div>
-                        <div className="text-right"><div className="text-4xl font-black text-yellow-500">{rankingsData.pog.pogPoints.toFixed(1)}</div><div className="text-[10px] font-bold uppercase text-gray-400">Total Pts</div></div>
-                      </div>
+                       <div className="text-xs font-bold uppercase text-yellow-600 mb-2">
+                         {filterSetId === "ALL" ? "Player of the Game" : `Top Performer (Set ${savedSets.find(s=>s.id === filterSetId)?.setNumber})`}
+                       </div>
+                       <div className="flex items-end justify-between">
+                         <div>
+                           <div className="text-3xl font-black text-gray-900">
+                             #{rankingsData.pog.jersey} {rankingsData.pog.name}
+                           </div>
+                           <div className="text-sm text-gray-600 font-bold mt-1">
+                              Team {rankingsData.pog.teamId} • {rankingsData.pog.position} • {rankingsData.pog.setsPlayed} Sets Played
+                           </div>
+                         </div>
+                         <div className="text-right">
+                           <div className="text-4xl font-black text-yellow-500">{rankingsData.pog.pogPoints.toFixed(1)}</div>
+                           <div className="text-[10px] font-bold uppercase text-gray-400">Total Pts</div>
+                         </div>
+                       </div>
                     </div>
-                  )}
-                  <div className="rounded-xl bg-white border p-6 shadow-sm">
+                 ) : (
+                    <div className="text-center text-gray-400 py-10">No data for rankings.</div>
+                 )}
+                 <div className="rounded-xl bg-white border p-6 shadow-sm">
                     <div className="font-black text-sm mb-4 text-gray-400 uppercase tracking-widest">Leaders By Position</div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       {(["OH", "OPP", "S", "L", "MB"] as PosBucket[]).map((pos) => {
                         const list = rankingsData.byPosition[pos] ?? [];
                         return (
                           <div key={pos} className="p-3 rounded-lg bg-gray-50 border">
-                            <div className="flex justify-between items-center mb-2 border-b pb-2"><span className="font-bold text-xs text-gray-500">{pos}</span><span className="text-[10px] bg-gray-200 px-1.5 rounded-full text-gray-600">{list.length}</span></div>
-                            {list.length === 0 ? <div className="text-[10px] text-gray-400 italic">None</div> : list.slice(0, 3).map((p) => (
-                                <div key={p.playerId} className="flex justify-between items-center text-sm py-0.5"><span className="font-bold text-gray-800">#{p.jersey} {p.name.split(" ")[0]} <span className="text-gray-400 text-[10px]">({p.setsPlayed}s)</span></span><span className="font-mono font-bold text-blue-600">{p.pogPoints.toFixed(1)}</span></div>
-                            ))}
+                            <div className="flex justify-between items-center mb-2 border-b pb-2">
+                              <span className="font-bold text-xs text-gray-500">{pos}</span>
+                              <span className="text-[10px] bg-gray-200 px-1.5 rounded-full text-gray-600">{list.length}</span>
+                            </div>
+                            {list.length === 0 ? <div className="text-[10px] text-gray-400 italic">None</div> : (
+                              list.slice(0, 3).map((p, i) => (
+                                <div key={p.playerId} className="flex justify-between items-center text-sm py-0.5">
+                                  <span className="font-bold text-gray-800">#{p.jersey} {p.name.split(" ")[0]} <span className="text-gray-400 text-[10px]">({p.setsPlayed}s)</span></span>
+                                  <span className="font-mono font-bold text-blue-600">{p.pogPoints.toFixed(1)}</span>
+                                </div>
+                              ))
+                            )}
                           </div>
                         );
                       })}
                     </div>
                   </div>
-                </div>
               </div>
             </div>
           )}

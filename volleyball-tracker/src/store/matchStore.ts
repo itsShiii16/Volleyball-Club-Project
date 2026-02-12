@@ -21,22 +21,13 @@ const normKey = (v: unknown) =>
 
 const ROTATION_ORDER: RotationSlot[] = [1, 6, 5, 4, 3, 2];
 
+// Rotation Logic
 const rotateCourtForward = (court: CourtState): CourtState => ({
-  1: court[2],
-  6: court[1],
-  5: court[6],
-  4: court[5],
-  3: court[4],
-  2: court[3],
+  1: court[2], 6: court[1], 5: court[6], 4: court[5], 3: court[4], 2: court[3],
 });
 
 const rotateCourtBackward = (court: CourtState): CourtState => ({
-  1: court[6],
-  6: court[5],
-  5: court[4],
-  4: court[3],
-  3: court[2],
-  2: court[1],
+  1: court[6], 6: court[5], 5: court[4], 4: court[3], 3: court[2], 2: court[1],
 });
 
 const isFrontRowSlot = (slot: RotationSlot) => slot === 2 || slot === 3 || slot === 4;
@@ -231,7 +222,6 @@ type InternalEvent = {
   prevScoreA: number; prevScoreB: number; prevServingTeam: TeamId; prevCourtA: CourtState; prevCourtB: CourtState; 
   prevLiberoSwapA: LiberoSwap; prevLiberoSwapB: LiberoSwap; prevRallyCount: number; prevRallyInProgress: boolean; 
   prevServiceRunTeam: TeamId; prevServiceRunCount: number; didSideoutRotate: boolean; skillKey: string; outcomeKey: string; 
-  // ✅ New Fields for Sub Undo
   prevSubsUsedA: number; prevSubsUsedB: number; 
   prevActiveSubsA: Record<string, string>; prevActiveSubsB: Record<string, string>; 
 };
@@ -255,7 +245,6 @@ type MatchStore = {
   undoLastEvent: () => void; undoFromEvent: (eventId: string) => void; endSet: (winner?: TeamId) => void; resetCourt: (teamId: TeamId) => void; resetMatch: () => void;
   manualSetScore: (teamId: TeamId, score: number) => void; manualSetSets: (teamId: TeamId, sets: number) => void;
   incrementScore: (teamId: TeamId) => void; decrementScore: (teamId: TeamId) => void;
-  // ✅ New Sub State
   subsUsedA: number; subsUsedB: number;
   activeSubsA: Record<string, string>; activeSubsB: Record<string, string>;
 };
@@ -290,7 +279,6 @@ export const useMatchStore = create<MatchStore>()(
             serviceRunTeam: nextServingTeam, serviceRunCount: 0, servingTeam: nextServingTeam, 
             liberoSwapA: defaultLiberoSwap(), liberoSwapB: defaultLiberoSwap(), 
             selected: null, activeScoresheet: null,
-            // ✅ Reset Sub Counts
             subsUsedA: 0, subsUsedB: 0, activeSubsA: {}, activeSubsB: {}
         };
         if (state.setRules.clearCourtsOnSetEnd) { base.courtA = emptyCourt(); base.courtB = emptyCourt(); }
@@ -329,14 +317,12 @@ export const useMatchStore = create<MatchStore>()(
           return { players: nextPlayers };
         }),
 
-        // ✅ NEW STATE: Subs
         subsUsedA: 0, subsUsedB: 0, activeSubsA: {}, activeSubsB: {},
 
-        // ✅ REVISED SUBSTITUTE ACTION with RULES
+        // ✅ REVISED SUBSTITUTE ACTION
         assignPlayerToSlot: (teamId, slot, playerId) => set((state) => {
-          // If assignment happens during setup (set 1, score 0-0), it's just setting starters.
-          // If it happens mid-game, it is a SUBSTITUTION.
-          const isMidGame = state.events.length > 0 || state.scoreA > 0 || state.scoreB > 0 || state.setNumber > 1;
+          // ✅ FIX: 0-0 is ALWAYS SETUP, regardless of set number.
+          const isMidGame = state.events.length > 0 || state.scoreA > 0 || state.scoreB > 0;
           const key = teamId === "A" ? "courtA" : "courtB"; 
           const subKey = teamId === "A" ? "activeSubsA" : "activeSubsB";
           const countKey = teamId === "A" ? "subsUsedA" : "subsUsedB";
@@ -347,59 +333,83 @@ export const useMatchStore = create<MatchStore>()(
           
           const currentPlayerId = court[slot];
 
-          // 1. Initial Assignment / Setup (Not a sub)
-          if (!isMidGame && !currentPlayerId) {
+          // 1. Get Players for Logic
+          const pIn = state.players.find(p => p.id === playerId);
+          const pOut = state.players.find(p => p.id === currentPlayerId);
+
+          const inIsLibero = isLiberoPlayer(pIn);
+          const outIsLibero = isLiberoPlayer(pOut);
+
+          // 2. Determine Replacement Type
+          // - Libero <-> Regular is FREE (Libero Replacement)
+          // - Regular <-> Regular is SUB (Substitution)
+          // - Libero <-> Libero is SUB (Special User Rule)
+          
+          const isLiberoReplacement = (inIsLibero && !outIsLibero) || (!inIsLibero && outIsLibero);
+          const isSubstitution = isMidGame && !isLiberoReplacement;
+
+          // ✅ 3. SETUP PHASE (0-0, No events)
+          // Allow swapping anyone without sub counts or rules.
+          if (!isMidGame) {
              court[slot] = playerId;
-             return { ...state, [key]: court };
+             
+             // Update Libero Config if a Libero was placed (so automation works)
+             const currentConfig = teamId === "A" ? state.liberoConfigA : state.liberoConfigB;
+             let newConfig = { ...currentConfig };
+             if (inIsLibero) {
+                 newConfig.liberoId = playerId;
+             }
+
+             // Return Early (No sub counts, no validation)
+             const nextState: any = { ...state, [key]: court };
+             if (teamId === "A") nextState.liberoConfigA = newConfig;
+             else nextState.liberoConfigB = newConfig;
+             return nextState;
           }
 
-          // 2. Logic for Substitution
-          if (isMidGame) {
-             // A. Check Limit
+          // 4. MID-GAME SUBSTITUTION LOGIC
+          if (isSubstitution) {
              if (subsUsed >= 6) {
                  return { ...state, toast: makeToast("Substitution limit (6) reached for this set.", "error") };
              }
 
-             // B. Check Player Constraints
              if (currentPlayerId) {
                  // Is outgoing player a SUB?
                  if (activeSubs[currentPlayerId]) {
-                     // If YES, they can ONLY be replaced by their ORIGINAL STARTER
+                     // Only original starter can replace sub
                      const originalStarter = activeSubs[currentPlayerId];
                      if (playerId !== originalStarter) {
                          return { ...state, toast: makeToast(`Illegal Sub: Must be replaced by original starter.`, "error") };
                      }
-                     // Valid return of starter -> Remove sub mapping
                      delete activeSubs[currentPlayerId];
                  } else {
-                     // Outgoing player is a STARTER (or has no active sub record)
-                     // Is the incoming player already a sub elsewhere? (Basic check)
+                     // Outgoing is Starter. Incoming is Sub.
                      if (Object.keys(activeSubs).includes(playerId)) {
                          return { ...state, toast: makeToast("Player is already on court as a sub.", "error") };
                      }
-                     // Valid sub -> Record mapping (New Player -> Original Starter)
                      activeSubs[playerId] = currentPlayerId;
                  }
-             } else {
-                 // Empty slot fill (rare mid-game, but treat as starter for now or just fill)
              }
              
              subsUsed++;
           }
 
+          // 5. Execute Swap
           court[slot] = playerId;
           
-          // Apply Libero Logic (incase sub affects it)
-          const applied = applyLiberoAutomation({ teamId, court, players: state.players, config: getConfig(state, teamId), swap: getSwap(state, teamId), servingTeam: state.servingTeam });
-          
-          // Log Event for Undo purposes (We need a special event type really, but using logEvent for now or just tracking state)
-          // For simple Undo of subs, we need to snapshot the state. The `logEvent` is primarily for stats. 
-          // Since `assignPlayer` doesn't call `logEvent`, undoing a sub via `undoLastEvent` won't work unless we log it.
-          // For now, we update the state directly. The user can manually fix if they mess up, or we add a "Sub" event type later.
-          // We will rely on manual correction for roster errors for now to keep it simple, OR we can push a "SUB" event.
-          // Let's push a dummy event so "Undo" works?
-          // Actually, let's keep it simple: Sub increases count.
+          // 6. Update Libero Config if a Libero was subbed in (e.g. L2 replaces L1)
+          const currentConfig = teamId === "A" ? state.liberoConfigA : state.liberoConfigB;
+          let newConfig = { ...currentConfig };
+          if (inIsLibero) {
+              newConfig.liberoId = playerId;
+          }
 
+          const applied = applyLiberoAutomation({ 
+              teamId, court, players: state.players, 
+              config: newConfig, // Use updated config
+              swap: getSwap(state, teamId), servingTeam: state.servingTeam 
+          });
+          
           const nextState: any = { 
               ...state, 
               [key]: applied.court, 
@@ -407,9 +417,13 @@ export const useMatchStore = create<MatchStore>()(
               [subKey]: activeSubs,
               [countKey]: subsUsed
           };
+
+          // Apply config update if changed
+          if (teamId === "A") nextState.liberoConfigA = newConfig;
+          else nextState.liberoConfigB = newConfig;
           
-          if (isMidGame) nextState.toast = makeToast(`Substitution recorded. (${subsUsed}/6)`, "info");
-          if (applied.toast) nextState.toast = applied.toast; // Override if Libero error
+          if (isSubstitution) nextState.toast = makeToast(`Substitution recorded. (${subsUsed}/6)`, "info");
+          if (applied.toast) nextState.toast = applied.toast;
 
           return nextState;
         }),
@@ -482,7 +496,6 @@ export const useMatchStore = create<MatchStore>()(
             prevScoreA: state.scoreA, prevScoreB: state.scoreB, prevServingTeam: state.servingTeam, prevCourtA: state.courtA, prevCourtB: state.courtB,
             prevLiberoSwapA: state.liberoSwapA, prevLiberoSwapB: state.liberoSwapB, prevRallyCount: state.rallyCount, prevRallyInProgress: state.rallyInProgress,
             prevServiceRunTeam: state.serviceRunTeam, prevServiceRunCount: state.serviceRunCount, didSideoutRotate: false, skillKey, outcomeKey,
-            // ✅ SNAPSHOT SUB STATE
             prevSubsUsedA: state.subsUsedA, prevSubsUsedB: state.subsUsedB,
             prevActiveSubsA: state.activeSubsA, prevActiveSubsB: state.activeSubsB,
           };
@@ -491,7 +504,6 @@ export const useMatchStore = create<MatchStore>()(
         }),
 
         undoLastEvent: () => set((state) => {
-          // ... (Existing Undo Logic, now restores Sub State)
           if (state.events.length > 0) {
             const last = state.events[0];
             const scoreChanged = (state.scoreA !== last.prevScoreA || state.scoreB !== last.prevScoreB);
@@ -512,25 +524,20 @@ export const useMatchStore = create<MatchStore>()(
                     rallyCount: restorePoint.prevRallyCount, rallyInProgress: restorePoint.prevRallyInProgress,
                     serviceRunTeam: restorePoint.prevServiceRunTeam, serviceRunCount: restorePoint.prevServiceRunCount,
                     events: state.events.slice(count),
-                    // ✅ RESTORE SUBS
                     subsUsedA: restorePoint.prevSubsUsedA, subsUsedB: restorePoint.prevSubsUsedB,
                     activeSubsA: restorePoint.prevActiveSubsA, activeSubsB: restorePoint.prevActiveSubsB,
                     toast: makeToast(`Undid Rally (${count} events).`, "info"),
                 };
             } else {
                 const [_, ...rest] = state.events;
-                // Simple event undo doesn't revert subs unless we track sub actions as events.
-                // For now, simple undo just pops the stat log.
                 return { ...state, events: rest, toast: makeToast("Undid last action.", "info") };
             }
           }
-          // ... (Previous Set Undo Logic) ...
           if (state.savedSets.length > 0 && state.scoreA === 0 && state.scoreB === 0) {
               const [lastSet, ...remainingSets] = state.savedSets;
               const restoredEvents = lastSet.events.slice().reverse();
               if (restoredEvents.length > 0) {
                   const lastEv = restoredEvents[0];
-                  // ... find rally ...
                   const targetA = lastEv.prevScoreA; const targetB = lastEv.prevScoreB;
                   let count = 0;
                   for (const ev of restoredEvents) { if (ev.prevScoreA === targetA && ev.prevScoreB === targetB) count++; else break; }
@@ -546,22 +553,17 @@ export const useMatchStore = create<MatchStore>()(
                       rallyCount: restorePoint.prevRallyCount, rallyInProgress: restorePoint.prevRallyInProgress,
                       serviceRunTeam: restorePoint.prevServiceRunTeam, serviceRunCount: restorePoint.prevServiceRunCount,
                       events: activeEvents,
-                      // ✅ RESTORE SUBS
                       subsUsedA: restorePoint.prevSubsUsedA, subsUsedB: restorePoint.prevSubsUsedB,
                       activeSubsA: restorePoint.prevActiveSubsA, activeSubsB: restorePoint.prevActiveSubsB,
                       toast: makeToast(`Undid Set ${lastSet.setNumber} End & Final Rally.`, "info")
                   };
               } else {
-                  // Fallback for empty sets - We can't restore subs here accurately without history, 
-                  // but we assume set end reset clears them anyway. 
-                  // If undoing an empty set, we probably want to assume 0 subs or whatever it was.
-                  // For simplicity, we restart the set with 0 subs if it was empty.
                   const nextSetsWonA = lastSet.winner === "A" ? state.setsWonA - 1 : state.setsWonA;
                   const nextSetsWonB = lastSet.winner === "B" ? state.setsWonB - 1 : state.setsWonB;
                   return {
                       ...state, savedSets: remainingSets, setNumber: state.setNumber - 1, setsWonA: nextSetsWonA, setsWonB: nextSetsWonB,
                       scoreA: lastSet.finalScoreA, scoreB: lastSet.finalScoreB, events: [],
-                      subsUsedA: 0, subsUsedB: 0, activeSubsA: {}, activeSubsB: {}, // Reset if empty
+                      subsUsedA: 0, subsUsedB: 0, activeSubsA: {}, activeSubsB: {},
                       toast: makeToast(`Reopened Set ${lastSet.setNumber}.`, "info")
                   };
               }
@@ -584,7 +586,6 @@ export const useMatchStore = create<MatchStore>()(
         }),
 
         resetCourt: (teamId) => set((state) => { 
-            // Resetting court also resets sub counts for that team (Logic decision: usually yes for a new set, but manual clear might be different)
             if (teamId === "A") return { ...state, courtA: emptyCourt(), liberoSwapA: defaultLiberoSwap(), subsUsedA: 0, activeSubsA: {} }; 
             return { ...state, courtB: emptyCourt(), liberoSwapB: defaultLiberoSwap(), subsUsedB: 0, activeSubsB: {} }; 
         }),
@@ -706,7 +707,7 @@ export const useMatchStore = create<MatchStore>()(
     },
     {
       name: "vb-match-store",
-      version: 17,
+      version: 20,
       migrate: (persisted: any) => {
         const state = persisted?.state ?? persisted ?? {};
         const players = Array.isArray(state.players) ? state.players : [];
