@@ -103,11 +103,33 @@ export default function MatchSummaryModal() {
   const sheetData = useMemo(() => {
     const allEvents = savedSets.flatMap((s) => s.events || []);
     
+    // Calculate Sets Played per Player
+    const setsPlayedMap: Record<string, number> = {};
+    savedSets.forEach(set => {
+        // Get all unique players who had an event in this set
+        const activeIds = new Set<string>();
+        if (set.events) {
+            set.events.forEach(e => activeIds.add(e.playerId));
+        }
+        activeIds.forEach(pid => {
+            setsPlayedMap[pid] = (setsPlayedMap[pid] || 0) + 1;
+        });
+    });
+
     const teamAPlayers = players.filter(p => p.teamId === "A").sort((a, b) => Number(a.jerseyNumber) - Number(b.jerseyNumber));
     const teamBPlayers = players.filter(p => p.teamId === "B").sort((a, b) => Number(a.jerseyNumber) - Number(b.jerseyNumber));
 
-    const rowsA = teamAPlayers.map(p => ({ player: p, stats: calculateSheetStats(p.id, "A", allEvents) }));
-    const rowsB = teamBPlayers.map(p => ({ player: p, stats: calculateSheetStats(p.id, "B", allEvents) }));
+    const rowsA = teamAPlayers.map(p => ({ 
+        player: p, 
+        stats: calculateSheetStats(p.id, "A", allEvents),
+        setsPlayed: setsPlayedMap[p.id] || 0
+    }));
+    
+    const rowsB = teamBPlayers.map(p => ({ 
+        player: p, 
+        stats: calculateSheetStats(p.id, "B", allEvents),
+        setsPlayed: setsPlayedMap[p.id] || 0
+    }));
 
     const totalA = calculateSheetStats("TEAM", "A", allEvents);
     const totalB = calculateSheetStats("TEAM", "B", allEvents);
@@ -123,23 +145,33 @@ export default function MatchSummaryModal() {
     const totalsPog: Record<string, number> = {};
     const pointsWon: Record<string, number> = {};
     const pointsLost: Record<string, number> = {};
+    const setsPlayedMap: Record<string, number> = {};
 
     for (const set of savedSets) {
+      const activeIds = new Set<string>();
+      
       if (set.perPlayer) {
         for (const [pid, data] of Object.entries(set.perPlayer)) {
           totalsPog[pid] = (totalsPog[pid] ?? 0) + Number(data?.pogPoints ?? 0);
+          activeIds.add(pid);
         }
       }
+      
       const events = Array.isArray(set.events) ? set.events : [];
       for (const ev of events as any[]) {
         const pid = String(ev?.playerId ?? "");
         if (!pid) continue;
+        activeIds.add(pid);
+
         const pw = ev?.pointWinner;
         const teamId = ev?.teamId;
         if (!pw) continue;
         if (teamId && pw === teamId) pointsWon[pid] = (pointsWon[pid] ?? 0) + 1;
         else if (teamId && pw !== teamId) pointsLost[pid] = (pointsLost[pid] ?? 0) + 1;
       }
+
+      // Increment set count for active players
+      activeIds.forEach(pid => setsPlayedMap[pid] = (setsPlayedMap[pid] || 0) + 1);
     }
 
     const ranked = Object.entries(totalsPog)
@@ -156,6 +188,7 @@ export default function MatchSummaryModal() {
           bucket,
           pointCredits: pointsWon[playerId] ?? 0,
           errorCredits: pointsLost[playerId] ?? 0,
+          setsPlayed: setsPlayedMap[playerId] ?? 0,
         };
       })
       .sort((a, b) => b.pogPoints - a.pogPoints);
@@ -245,6 +278,8 @@ export default function MatchSummaryModal() {
                       <tr className="bg-gray-200 text-gray-900 border-b-2 border-black font-extrabold text-[11px] uppercase">
                         <th className="p-2 border-r border-gray-400 w-12 bg-gray-300">#</th>
                         <th className="p-2 border-r border-gray-400 text-left w-48 bg-gray-300">Name</th>
+                        {/* ✅ ADDED SETS PLAYED COLUMN */}
+                        <th className="p-2 border-r border-gray-400 w-12 bg-gray-300">Sets</th>
                         <th className="p-2 border-r border-black w-14 bg-yellow-300 text-black">PTS</th>
                         
                         {/* Scoring */}
@@ -261,7 +296,7 @@ export default function MatchSummaryModal() {
                       </tr>
                       {/* 3. SUB HEADERS */}
                       <tr className="bg-gray-100 text-[10px] font-bold text-gray-700 border-b border-black">
-                        <th colSpan={3} className="border-r border-gray-400 bg-gray-50"></th>
+                        <th colSpan={4} className="border-r border-black bg-gray-50"></th>
                         <th colSpan={5} className="border-r border-black bg-gray-50"></th>
                         {/* Digs */}
                         <th className="border-r border-gray-300 py-1 bg-purple-50">Exc</th>
@@ -278,10 +313,12 @@ export default function MatchSummaryModal() {
                       </tr>
                     </thead>
                     <tbody className="text-gray-900">
-                      {currentRows.map(({ player, stats }, i) => (
+                      {currentRows.map(({ player, stats, setsPlayed }, i) => (
                         <tr key={player.id} className={`border-b border-gray-300 ${i % 2 === 0 ? "bg-white" : "bg-gray-50 hover:bg-gray-100"}`}>
                           <td className="p-2 border-r border-gray-300 font-bold text-gray-700">{player.jerseyNumber}</td>
                           <td className="p-2 border-r border-gray-300 text-left font-bold text-black truncate max-w-[150px]">{player.name}</td>
+                          {/* ✅ Sets Played Value */}
+                          <td className="p-2 border-r border-gray-300 font-bold text-gray-500 bg-gray-50">{setsPlayed || ""}</td>
                           <td className="p-2 border-r border-black font-black text-base bg-yellow-300 text-black">{stats.points || "-"}</td>
                           
                           {/* Scoring Stats */}
@@ -310,7 +347,7 @@ export default function MatchSummaryModal() {
                       
                       {/* TEAM TOTALS */}
                       <tr className="bg-gray-900 text-white font-bold border-t-2 border-black">
-                        <td colSpan={2} className="p-3 border-r border-gray-700 text-right uppercase text-xs tracking-widest text-gray-300">Total Team</td>
+                        <td colSpan={3} className="p-3 border-r border-gray-700 text-right uppercase text-xs tracking-widest text-gray-300">Total Team</td>
                         <td className="p-3 border-r border-white bg-yellow-500 text-black font-black text-lg">{currentTotal.points}</td>
                         
                         <td className="p-2 border-r border-gray-700">{currentTotal.spikes.won}</td>
@@ -377,7 +414,9 @@ export default function MatchSummaryModal() {
                           <div className="text-3xl font-black text-gray-900">
                             #{rankingsData.pog.jersey} {rankingsData.pog.name}
                           </div>
-                          <div className="text-sm text-gray-600 font-bold mt-1">Team {rankingsData.pog.teamId} • {rankingsData.pog.position}</div>
+                          <div className="text-sm text-gray-600 font-bold mt-1">
+                             Team {rankingsData.pog.teamId} • {rankingsData.pog.position} • {rankingsData.pog.setsPlayed} Sets Played
+                          </div>
                         </div>
                         <div className="text-right">
                           <div className="text-4xl font-black text-yellow-500">{rankingsData.pog.pogPoints.toFixed(1)}</div>
@@ -402,7 +441,7 @@ export default function MatchSummaryModal() {
                             {list.length === 0 ? <div className="text-[10px] text-gray-400 italic">None</div> : (
                               list.slice(0, 3).map((p, i) => (
                                 <div key={p.playerId} className="flex justify-between items-center text-sm py-0.5">
-                                  <span className="font-bold text-gray-800">#{p.jersey} {p.name.split(" ")[0]}</span>
+                                  <span className="font-bold text-gray-800">#{p.jersey} {p.name.split(" ")[0]} <span className="text-gray-400 text-[10px]">({p.setsPlayed}s)</span></span>
                                   <span className="font-mono font-bold text-blue-600">{p.pogPoints.toFixed(1)}</span>
                                 </div>
                               ))

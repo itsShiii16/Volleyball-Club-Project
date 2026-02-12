@@ -31,8 +31,15 @@ export default function Home() {
   const players = useMatchStore((s) => s.players);
   const assign = useMatchStore((s) => s.assignPlayerToSlot);
   const resetMatch = useMatchStore((s) => s.resetMatch);
-  const undoLastEvent = useMatchStore((s) => s.undoLastEvent); // ✅ This is now the smart undo
-  const canUndo = useMatchStore((s) => (s.events?.length ?? 0) > 0);
+  
+  // ✅ FIX: Allow Undo if events exist OR if it's the start of a new set (to undo the previous set)
+  const undoLastEvent = useMatchStore((s) => s.undoLastEvent);
+  const canUndo = useMatchStore((s) => {
+    if ((s.events?.length ?? 0) > 0) return true;
+    // Allow undo if we have saved sets and the current score is 0-0
+    if ((s.savedSets?.length ?? 0) > 0 && s.scoreA === 0 && s.scoreB === 0) return true;
+    return false;
+  });
   
   // Navigation & Layout Actions
   const rotateTeam = useMatchStore((s) => s.rotateTeam);
@@ -165,7 +172,7 @@ export default function Home() {
   const btnDark = `${btnBase} bg-gray-800 text-white hover:bg-gray-700`;
   const btnBlue = `${btnBase} bg-sky-500 text-white hover:bg-sky-600 ring-2 ring-sky-900/20 text-sm sm:text-base`;
   const btnRed = `${btnBase} bg-red-600 text-white hover:bg-red-700`;
-  const btnDisabled = `${btnBase} bg-gray-700 text-gray-500 cursor-not-allowed shadow-none`;
+  const btnDisabled = `${btnBase} bg-gray-700 text-gray-500 cursor-not-allowed shadow-none opacity-50`; // Added opacity
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-[var(--background)] text-white">
@@ -207,7 +214,10 @@ export default function Home() {
                 <div className="flex gap-2">
                   <button onClick={handleReset} className={btnRed}>RESET</button>
                   <button onClick={() => endSet()} className={`${btnBase} bg-amber-500 text-white hover:bg-amber-600 shadow-md`}>END SET</button>
+                  
+                  {/* ✅ UNDO BUTTON: Now enabled if savedSets exist even if events are empty */}
                   <button onClick={undoLastEvent} disabled={!canUndo} className={canUndo ? btnDark : btnDisabled}>UNDO</button>
+                  
                   <button onClick={swapSides} className={btnWhite}>SWAP</button>
                   <div className="hidden sm:flex gap-2">
                     <button onClick={rotateLeftSide} className={btnWhite}>ROT L</button>

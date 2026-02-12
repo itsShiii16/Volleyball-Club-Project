@@ -21,21 +21,25 @@ const normKey = (v: unknown) =>
 
 const ROTATION_ORDER: RotationSlot[] = [1, 6, 5, 4, 3, 2];
 
-const rotateCourtForward = (court: CourtState): CourtState => {
-  const next: CourtState = { ...court };
-  const current = ROTATION_ORDER.map((s) => next[s]);
-  current.unshift(current.pop()!);
-  ROTATION_ORDER.forEach((s, idx) => { next[s] = current[idx] ?? null; });
-  return next;
-};
+// ✅ ROTATION A (Standard/Clockwise): 1 takes 2, 6 takes 1...
+const rotateCourtClockwise = (court: CourtState): CourtState => ({
+  1: court[2],
+  6: court[1],
+  5: court[6],
+  4: court[5],
+  3: court[4],
+  2: court[3],
+});
 
-const rotateCourtBackward = (court: CourtState): CourtState => {
-  const next: CourtState = { ...court };
-  const current = ROTATION_ORDER.map((s) => next[s]);
-  current.push(current.shift()!);
-  ROTATION_ORDER.forEach((s, idx) => { next[s] = current[idx] ?? null; });
-  return next;
-};
+// ✅ ROTATION B (Opposite/Counter-Clockwise): 1 takes 6, 2 takes 1...
+const rotateCourtCounterClockwise = (court: CourtState): CourtState => ({
+  1: court[6],
+  6: court[5],
+  5: court[4],
+  4: court[3],
+  3: court[2],
+  2: court[1],
+});
 
 const isFrontRowSlot = (slot: RotationSlot) => slot === 2 || slot === 3 || slot === 4;
 const isBackRowSlot = (slot: RotationSlot) => slot === 1 || slot === 5 || slot === 6;
@@ -118,15 +122,18 @@ function applyLiberoAutomation(params: { teamId: TeamId; court: CourtState; play
     return { court: nextCourt, swap: nextSwap };
   }
 
-  if (params.servingTeam === teamId) return { court: nextCourt, swap: nextSwap };
-
   const liberoSlot = config.liberoId ? findSlotOf(config.liberoId) : null;
   if (!liberoSlot) {
     let chosenMbId: string | null = null;
     let chosenMbSlot: RotationSlot | null = null;
     for (const mbId of mbIds) {
       const mbSlot = findSlotOf(mbId);
-      if (mbSlot && isBackRowSlot(mbSlot)) { chosenMbId = mbId; chosenMbSlot = mbSlot; break; }
+      if (mbSlot && isBackRowSlot(mbSlot)) { 
+         if (params.servingTeam === teamId && mbSlot === 1) {
+             continue; 
+         }
+         chosenMbId = mbId; chosenMbSlot = mbSlot; break; 
+      }
     }
     if (chosenMbId && chosenMbSlot) {
       nextCourt[chosenMbSlot] = config.liberoId;
@@ -142,7 +149,6 @@ function applyLiberoAutomation(params: { teamId: TeamId; court: CourtState; play
 
 type RoleKey = "WINGERS" | "MIDDLE_BLOCKER" | "LIBERO" | "SETTER";
 
-// ✅ GRANULAR STAT KEYS (Matching PDF Columns)
 type StatKey = 
   | "SERVE_ACE" | "SERVE_SUCCESS" | "SERVE_ERROR"
   | "RECEPTION_EXC" | "RECEPTION_ATT" | "RECEPTION_ERR"
@@ -340,10 +346,6 @@ export const useMatchStore = create<MatchStore>()(
   persist(
     (set, get) => {
       const isTeamOnLeft = (teamId: TeamId) => get().leftTeam === teamId;
-      const rotateForwardForTeam = (teamId: TeamId, court: CourtState) => isTeamOnLeft(teamId) ? rotateCourtForward(court) : rotateCourtBackward(court);
-      const rotateBackwardForTeam = (teamId: TeamId, court: CourtState) => isTeamOnLeft(teamId) ? rotateCourtBackward(court) : rotateCourtForward(court);
-      const rotationMappingForForward = (teamId: TeamId): "FORWARD" | "BACKWARD" => isTeamOnLeft(teamId) ? "FORWARD" : "BACKWARD";
-      const rotationMappingForBackward = (teamId: TeamId): "FORWARD" | "BACKWARD" => isTeamOnLeft(teamId) ? "BACKWARD" : "FORWARD";
       const getConfig = (state: MatchStore, teamId: TeamId) => teamId === "A" ? state.liberoConfigA : state.liberoConfigB;
       const getSwap = (state: MatchStore, teamId: TeamId) => teamId === "A" ? state.liberoSwapA : state.liberoSwapB;
       const setSwapPatch = (teamId: TeamId, swap: LiberoSwap) => teamId === "A" ? { liberoSwapA: swap } : { liberoSwapB: swap };
@@ -421,16 +423,20 @@ export const useMatchStore = create<MatchStore>()(
         getOnCourtPlayerIds: (teamId) => { const state = get(); const court = teamId === "A" ? state.courtA : state.courtB; return Object.values(court).filter(Boolean) as string[]; },
         
         rotateTeam: (teamId) => set((state) => {
-          const key = teamId === "A" ? "courtA" : "courtB"; const rotated = rotateForwardForTeam(teamId, state[key]);
-          const applied = applyLiberoAutomation({ teamId, court: rotated, players: state.players, config: getConfig(state, teamId), swap: getSwap(state, teamId), rotationMapping: rotationMappingForForward(teamId), servingTeam: state.servingTeam });
+          const key = teamId === "A" ? "courtA" : "courtB";
+          const mapping = teamId === "A" ? "FORWARD" : "BACKWARD";
+          const rotated = teamId === "A" ? rotateCourtClockwise(state[key]) : rotateCourtCounterClockwise(state[key]);
+          const applied = applyLiberoAutomation({ teamId, court: rotated, players: state.players, config: getConfig(state, teamId), swap: getSwap(state, teamId), rotationMapping: mapping, servingTeam: state.servingTeam });
           if (hasIllegalLiberoFrontRow(applied.court, state.players)) return { ...state, toast: makeToast("Illegal rotation: Libero cannot rotate into the front row.", "error") };
           const next: any = { ...state, [key]: applied.court, ...setSwapPatch(teamId, applied.swap) };
           if (applied.toast) next.toast = applied.toast;
           return next;
         }),
         rotateTeamBackward: (teamId) => set((state) => {
-          const key = teamId === "A" ? "courtA" : "courtB"; const rotated = rotateBackwardForTeam(teamId, state[key]);
-          const applied = applyLiberoAutomation({ teamId, court: rotated, players: state.players, config: getConfig(state, teamId), swap: getSwap(state, teamId), rotationMapping: rotationMappingForBackward(teamId), servingTeam: state.servingTeam });
+          const key = teamId === "A" ? "courtA" : "courtB";
+          const mapping = teamId === "A" ? "BACKWARD" : "FORWARD";
+          const rotated = teamId === "A" ? rotateCourtCounterClockwise(state[key]) : rotateCourtClockwise(state[key]);
+          const applied = applyLiberoAutomation({ teamId, court: rotated, players: state.players, config: getConfig(state, teamId), swap: getSwap(state, teamId), rotationMapping: mapping, servingTeam: state.servingTeam });
           if (hasIllegalLiberoFrontRow(applied.court, state.players)) return { ...state, toast: makeToast("Illegal rotation: Libero cannot rotate into the front row.", "error") };
           const next: any = { ...state, [key]: applied.court, ...setSwapPatch(teamId, applied.swap) };
           if (applied.toast) next.toast = applied.toast;
@@ -467,7 +473,7 @@ export const useMatchStore = create<MatchStore>()(
           const isError = outcomeKey.includes("ERROR") || outcomeKey.includes("FAULT") || outcomeKey.includes("OUT") || outcomeKey.includes("NET");
           if (isError) pointWinner = opponentOf(teamId);
           else {
-            const isWin = outcomeKey.includes("KILL") || outcomeKey.includes("ACE") || outcomeKey.includes("POINT") || outcomeKey.includes("BLOCK_POINT");
+            const isWin = outcomeKey.includes("KILL") || outcomeKey.includes("ACE") || outcomeKey.includes("POINT");
             if ((skillKey.includes("SERVE") || skillKey.includes("SPIKE") || skillKey.includes("BLOCK")) && isWin) {
               pointWinner = teamId;
             }
@@ -483,73 +489,117 @@ export const useMatchStore = create<MatchStore>()(
           return { events: [e, ...state.events], toast: makeToast("Stat recorded.", "info") };
         }),
 
-        // ✅ RE-WRITTEN UNDO: "Smart Undo"
+        // ✅ RE-IMPLEMENTED UNDO: Now handles Set End Reversal correctly
         undoLastEvent: () => set((state) => {
-          if (state.events.length === 0) {
-             // If no events, try to revert a manual score change if it looks recent?
-             // But we don't track manual score history separate from events. 
-             return { ...state, toast: makeToast("No events to undo.", "warn") };
-          }
+          // 1. Current Set Undo
+          if (state.events.length > 0) {
+            const last = state.events[0];
+            const scoreChanged = (state.scoreA !== last.prevScoreA || state.scoreB !== last.prevScoreB);
 
-          const last = state.events[0];
-          const scoreChanged = (state.scoreA !== last.prevScoreA || state.scoreB !== last.prevScoreB);
-          
-          // CASE 1: Score has changed since the last logged event (The "Rally Undo" Case)
-          // This implies the user logged some stats, then hit "Increment Score".
-          // We want to undo EVERYTHING for that point.
-          if (scoreChanged) {
-             // 1. Identify the 'target' score state (the state BEFORE this rally started)
-             const targetA = last.prevScoreA;
-             const targetB = last.prevScoreB;
-
-             // 2. Find ALL contiguous events that belong to this rally (share the same prevScore)
-             // We iterate from the start (latest) backwards.
-             let count = 0;
-             for (const ev of state.events) {
-                if (ev.prevScoreA === targetA && ev.prevScoreB === targetB) {
-                   count++;
-                } else {
-                   break; 
+            if (scoreChanged) {
+                // Determine previous scores
+                const targetA = last.prevScoreA;
+                const targetB = last.prevScoreB;
+                
+                // Count how many events belong to this rally
+                let count = 0;
+                for (const ev of state.events) {
+                    if (ev.prevScoreA === targetA && ev.prevScoreB === targetB) count++;
+                    else break;
                 }
-             }
-
-             // 3. The "State to Restore" is the 'prev...' of the OLDEST event in this group.
-             // events[count - 1] is the oldest event of this rally.
-             const restorePoint = state.events[count - 1];
-
-             // 4. Slice off these events
-             const remainingEvents = state.events.slice(count);
-
-             return {
-                ...state,
-                scoreA: restorePoint.prevScoreA,
-                scoreB: restorePoint.prevScoreB,
-                servingTeam: restorePoint.prevServingTeam,
-                courtA: restorePoint.prevCourtA,
-                courtB: restorePoint.prevCourtB,
-                liberoSwapA: restorePoint.prevLiberoSwapA,
-                liberoSwapB: restorePoint.prevLiberoSwapB,
-                rallyCount: restorePoint.prevRallyCount,
-                rallyInProgress: restorePoint.prevRallyInProgress,
-                serviceRunTeam: restorePoint.prevServiceRunTeam,
-                serviceRunCount: restorePoint.prevServiceRunCount,
-                events: remainingEvents,
-                toast: makeToast(`Undid Rally (${count} events).`, "info"),
-             };
+                
+                // The state to revert to is stored in the OLDEST event of this group
+                const restorePoint = state.events[count - 1];
+                
+                return {
+                    ...state,
+                    scoreA: restorePoint.prevScoreA,
+                    scoreB: restorePoint.prevScoreB,
+                    servingTeam: restorePoint.prevServingTeam,
+                    courtA: restorePoint.prevCourtA,
+                    courtB: restorePoint.prevCourtB,
+                    liberoSwapA: restorePoint.prevLiberoSwapA,
+                    liberoSwapB: restorePoint.prevLiberoSwapB,
+                    rallyCount: restorePoint.prevRallyCount,
+                    rallyInProgress: restorePoint.prevRallyInProgress,
+                    serviceRunTeam: restorePoint.prevServiceRunTeam,
+                    serviceRunCount: restorePoint.prevServiceRunCount,
+                    events: state.events.slice(count), // Remove rally events
+                    toast: makeToast(`Undid Rally (${count} events).`, "info"),
+                };
+            } else {
+                // Simple Event Undo (mid-rally)
+                const [_, ...rest] = state.events;
+                return { ...state, events: rest, toast: makeToast("Undid last action.", "info") };
+            }
           }
 
-          // CASE 2: Score has NOT changed (Mid-rally undo)
-          // Just pop the single last event.
-          const [popped, ...rest] = state.events;
-          return {
-             ...state,
-             events: rest,
-             toast: makeToast("Undid last action.", "info"),
-          };
+          // 2. Previous Set Undo (Set End Reversal)
+          if (state.savedSets.length > 0 && state.scoreA === 0 && state.scoreB === 0) {
+              const [lastSet, ...remainingSets] = state.savedSets;
+              
+              // Restore events (they are stored reversed in savedSet)
+              const restoredEvents = lastSet.events.slice().reverse();
+
+              // If set ended with events (normal), undo the last rally
+              if (restoredEvents.length > 0) {
+                  const lastEv = restoredEvents[0];
+                  const targetA = lastEv.prevScoreA;
+                  const targetB = lastEv.prevScoreB;
+                  let count = 0;
+                  for (const ev of restoredEvents) {
+                      if (ev.prevScoreA === targetA && ev.prevScoreB === targetB) count++;
+                      else break;
+                  }
+                  
+                  const restorePoint = restoredEvents[count - 1];
+                  const activeEvents = restoredEvents.slice(count);
+
+                  const nextSetsWonA = lastSet.winner === "A" ? state.setsWonA - 1 : state.setsWonA;
+                  const nextSetsWonB = lastSet.winner === "B" ? state.setsWonB - 1 : state.setsWonB;
+
+                  return {
+                      ...state,
+                      savedSets: remainingSets,
+                      setNumber: state.setNumber - 1,
+                      setsWonA: nextSetsWonA,
+                      setsWonB: nextSetsWonB,
+                      scoreA: restorePoint.prevScoreA,
+                      scoreB: restorePoint.prevScoreB,
+                      servingTeam: restorePoint.prevServingTeam,
+                      courtA: restorePoint.prevCourtA,
+                      courtB: restorePoint.prevCourtB,
+                      liberoSwapA: restorePoint.prevLiberoSwapA,
+                      liberoSwapB: restorePoint.prevLiberoSwapB,
+                      rallyCount: restorePoint.prevRallyCount,
+                      rallyInProgress: restorePoint.prevRallyInProgress,
+                      serviceRunTeam: restorePoint.prevServiceRunTeam,
+                      serviceRunCount: restorePoint.prevServiceRunCount,
+                      events: activeEvents,
+                      toast: makeToast(`Undid Set ${lastSet.setNumber} End & Final Rally.`, "info")
+                  };
+              } else {
+                  // Fallback for manual set end (no events)
+                  const nextSetsWonA = lastSet.winner === "A" ? state.setsWonA - 1 : state.setsWonA;
+                  const nextSetsWonB = lastSet.winner === "B" ? state.setsWonB - 1 : state.setsWonB;
+                  return {
+                      ...state,
+                      savedSets: remainingSets,
+                      setNumber: state.setNumber - 1,
+                      setsWonA: nextSetsWonA,
+                      setsWonB: nextSetsWonB,
+                      scoreA: lastSet.finalScoreA,
+                      scoreB: lastSet.finalScoreB,
+                      events: [],
+                      toast: makeToast(`Reopened Set ${lastSet.setNumber}.`, "info")
+                  };
+              }
+          }
+
+          return { ...state, toast: makeToast("Nothing to undo.", "warn") };
         }),
 
-        undoFromEvent: (eventId: string) =>
-          set((state) => {
+        undoFromEvent: (eventId: string) => set((state) => {
             const index = state.events.findIndex((e) => e.id === eventId);
             if (index === -1) return state;
             const target = state.events[index];
@@ -559,20 +609,10 @@ export const useMatchStore = create<MatchStore>()(
               liberoSwapA: target.prevLiberoSwapA, liberoSwapB: target.prevLiberoSwapB, rallyCount: target.prevRallyCount, rallyInProgress: target.prevRallyInProgress,
               serviceRunTeam: target.prevServiceRunTeam, serviceRunCount: target.prevServiceRunCount, events: remainingEvents, toast: makeToast("Reverted state to before selected event.", "info"),
             };
-          }),
+        }),
 
-        resetCourt: (teamId) =>
-          set((state) => {
-            if (teamId === "A") return { ...state, courtA: emptyCourt(), liberoSwapA: defaultLiberoSwap() };
-            return { ...state, courtB: emptyCourt(), liberoSwapB: defaultLiberoSwap() };
-          }),
-
-        resetMatch: () =>
-          set((state) => ({
-            ...state, courtA: emptyCourt(), courtB: emptyCourt(), selected: null, activeScoresheet: null, events: [], scoreA: 0, scoreB: 0, servingTeam: "A",
-            toast: null, rallyCount: 0, rallyInProgress: false, serviceRunTeam: "A", serviceRunCount: 0, liberoSwapA: defaultLiberoSwap(), liberoSwapB: defaultLiberoSwap(),
-            setNumber: 1, setsWonA: 0, setsWonB: 0, savedSets: [], setRules: defaultSetRules(), matchSummaryOpen: false,
-          })),
+        resetCourt: (teamId) => set((state) => { if (teamId === "A") return { ...state, courtA: emptyCourt(), liberoSwapA: defaultLiberoSwap() }; return { ...state, courtB: emptyCourt(), liberoSwapB: defaultLiberoSwap() }; }),
+        resetMatch: () => set((state) => ({ ...state, courtA: emptyCourt(), courtB: emptyCourt(), selected: null, activeScoresheet: null, events: [], scoreA: 0, scoreB: 0, servingTeam: "A", toast: null, rallyCount: 0, rallyInProgress: false, serviceRunTeam: "A", serviceRunCount: 0, liberoSwapA: defaultLiberoSwap(), liberoSwapB: defaultLiberoSwap(), setNumber: 1, setsWonA: 0, setsWonB: 0, savedSets: [], setRules: defaultSetRules(), matchSummaryOpen: false })),
 
         manualSetScore: (teamId, score) => set((state) => ({ ...state, scoreA: teamId === "A" ? score : state.scoreA, scoreB: teamId === "B" ? score : state.scoreB })),
         manualSetSets: (teamId, sets) => set((state) => ({ ...state, setsWonA: teamId === "A" ? sets : state.setsWonA, setsWonB: teamId === "B" ? sets : state.setsWonB })),
@@ -590,12 +630,13 @@ export const useMatchStore = create<MatchStore>()(
 
           if (teamId !== servingTeam) {
             nextServingTeam = teamId;
-            // 1. Handle Winner: Rotate + AutoSub
             const sideoutTeamId = teamId;
-            const isLeft = state.leftTeam === sideoutTeamId;
             const courtToRotate = sideoutTeamId === "A" ? nextCourtA : nextCourtB;
-            const rotated = isLeft ? rotateCourtForward(courtToRotate) : rotateCourtBackward(courtToRotate);
-            const mapping = isLeft ? "FORWARD" : "BACKWARD";
+            
+            // ✅ FIX: TEAM SPECIFIC ROTATION DIRECTION
+            const rotated = sideoutTeamId === "A" ? rotateCourtClockwise(courtToRotate) : rotateCourtCounterClockwise(courtToRotate);
+            const mapping = sideoutTeamId === "A" ? "FORWARD" : "BACKWARD";
+            
             const config = sideoutTeamId === "A" ? liberoConfigA : liberoConfigB;
             const swap = sideoutTeamId === "A" ? liberoSwapA : liberoSwapB;
 
@@ -611,7 +652,6 @@ export const useMatchStore = create<MatchStore>()(
               if (applied.toast) toast = applied.toast;
             }
 
-            // 2. Handle Loser: AutoSub Only
             const losingTeamId = opponentOf(teamId);
             const configL = losingTeamId === "A" ? liberoConfigA : liberoConfigB;
             const swapL = losingTeamId === "A" ? nextSwapA : nextSwapB;
@@ -644,7 +684,6 @@ export const useMatchStore = create<MatchStore>()(
           return { ...baseNext, savedSets: [saved, ...state.savedSets], setsWonA: nextSetsWonA, setsWonB: nextSetsWonB, setNumber: state.setNumber + 1, ...after as any, toast: makeToast(`Set ${state.setNumber} saved. Winner: Team ${autoWinner}.`, "info") };
         }),
 
-        // ✅ MANUAL DECREMENT (With Rotation Reversal)
         decrementScore: (teamId) => set((state) => {
             const nextScore = teamId === "A" ? Math.max(0, state.scoreA - 1) : Math.max(0, state.scoreB - 1);
             let partial: Partial<MatchStore> = {
@@ -652,15 +691,15 @@ export const useMatchStore = create<MatchStore>()(
                 scoreB: teamId === "B" ? nextScore : state.scoreB,
             };
 
-            // If team was serving, they must have just won a sideout. Revert it.
             if (state.servingTeam === teamId) {
                 const prevServing = opponentOf(teamId);
                 partial.servingTeam = prevServing;
 
-                const isLeft = state.leftTeam === teamId;
                 const currentCourt = teamId === "A" ? state.courtA : state.courtB;
-                const rotated = isLeft ? rotateCourtBackward(currentCourt) : rotateCourtForward(currentCourt);
-                const mapping = isLeft ? "BACKWARD" : "FORWARD";
+                // ✅ FIX: Reverse of Forward is Backward, Reverse of Backward is Forward
+                const rotated = teamId === "A" ? rotateCourtCounterClockwise(currentCourt) : rotateCourtClockwise(currentCourt);
+                const mapping = teamId === "A" ? "BACKWARD" : "FORWARD";
+                
                 const config = teamId === "A" ? state.liberoConfigA : state.liberoConfigB;
                 const swap = teamId === "A" ? state.liberoSwapA : state.liberoSwapB;
 
@@ -690,7 +729,7 @@ export const useMatchStore = create<MatchStore>()(
     },
     {
       name: "vb-match-store",
-      version: 8, // Increment version for new undo logic
+      version: 14,
       migrate: (persisted: any) => {
         const state = persisted?.state ?? persisted ?? {};
         const players = Array.isArray(state.players) ? state.players : [];
