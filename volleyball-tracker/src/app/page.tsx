@@ -32,11 +32,10 @@ export default function Home() {
   const assign = useMatchStore((s) => s.assignPlayerToSlot);
   const resetMatch = useMatchStore((s) => s.resetMatch);
   
-  // ✅ FIX: Allow Undo if events exist OR if it's the start of a new set (to undo the previous set)
+  // Undo Logic
   const undoLastEvent = useMatchStore((s) => s.undoLastEvent);
   const canUndo = useMatchStore((s) => {
     if ((s.events?.length ?? 0) > 0) return true;
-    // Allow undo if we have saved sets and the current score is 0-0
     if ((s.savedSets?.length ?? 0) > 0 && s.scoreA === 0 && s.scoreB === 0) return true;
     return false;
   });
@@ -51,8 +50,15 @@ export default function Home() {
   const setServingTeam = useMatchStore((s) => s.setServingTeam);
   const leftTeam = useMatchStore((s) => s.leftTeam);
   const rightTeam = opponentOf(leftTeam);
+  
+  // Scores
   const scoreA = useMatchStore((s) => s.scoreA);
   const scoreB = useMatchStore((s) => s.scoreB);
+  
+  // ✅ DYNAMIC SCORE GETTERS
+  const leftScore = leftTeam === "A" ? scoreA : scoreB;
+  const rightScore = rightTeam === "A" ? scoreA : scoreB;
+
   const setsWonA = useMatchStore((s) => s.setsWonA);
   const setsWonB = useMatchStore((s) => s.setsWonB);
   const setNumber = useMatchStore((s) => s.setNumber);
@@ -172,7 +178,7 @@ export default function Home() {
   const btnDark = `${btnBase} bg-gray-800 text-white hover:bg-gray-700`;
   const btnBlue = `${btnBase} bg-sky-500 text-white hover:bg-sky-600 ring-2 ring-sky-900/20 text-sm sm:text-base`;
   const btnRed = `${btnBase} bg-red-600 text-white hover:bg-red-700`;
-  const btnDisabled = `${btnBase} bg-gray-700 text-gray-500 cursor-not-allowed shadow-none opacity-50`; // Added opacity
+  const btnDisabled = `${btnBase} bg-gray-700 text-gray-500 cursor-not-allowed shadow-none opacity-50`;
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-[var(--background)] text-white">
@@ -214,10 +220,7 @@ export default function Home() {
                 <div className="flex gap-2">
                   <button onClick={handleReset} className={btnRed}>RESET</button>
                   <button onClick={() => endSet()} className={`${btnBase} bg-amber-500 text-white hover:bg-amber-600 shadow-md`}>END SET</button>
-                  
-                  {/* ✅ UNDO BUTTON: Now enabled if savedSets exist even if events are empty */}
                   <button onClick={undoLastEvent} disabled={!canUndo} className={canUndo ? btnDark : btnDisabled}>UNDO</button>
-                  
                   <button onClick={swapSides} className={btnWhite}>SWAP</button>
                   <div className="hidden sm:flex gap-2">
                     <button onClick={rotateLeftSide} className={btnWhite}>ROT L</button>
@@ -226,13 +229,13 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* ROW 2: SERVE */}
+              {/* ROW 2: SERVE BUTTONS (Dynamic) */}
               <div className="flex justify-center gap-4 py-1">
-                 <button onClick={() => setServingTeam("A")} className={servingTeam === "A" ? btnBlue : btnWhite}>
-                    Serve Team A
+                 <button onClick={() => setServingTeam(leftTeam)} className={servingTeam === leftTeam ? btnBlue : btnWhite}>
+                    Serve Left
                   </button>
-                  <button onClick={() => setServingTeam("B")} className={servingTeam === "B" ? btnBlue : btnWhite}>
-                    Serve Team B
+                  <button onClick={() => setServingTeam(rightTeam)} className={servingTeam === rightTeam ? btnBlue : btnWhite}>
+                    Serve Right
                   </button>
               </div>
 
@@ -262,7 +265,7 @@ export default function Home() {
 
                 <div className="flex flex-col lg:grid lg:grid-cols-[1fr_auto_1fr] w-full gap-4 items-center lg:items-end">
                   
-                  {/* LEFT TEAM */}
+                  {/* LEFT TEAM (Dynamic) */}
                   <div className="flex flex-col items-center lg:items-start gap-2 w-full">
                     <input 
                       value={leftTeam === "A" ? teamNameA : teamNameB} 
@@ -281,18 +284,20 @@ export default function Home() {
 
                     <div className="flex items-center gap-3 bg-gray-900/80 p-3 rounded-3xl border border-white/10 shadow-2xl">
                       
+                      {/* LEFT SCORE CONTROLS (Dynamic) */}
                       <div className="flex flex-col items-center gap-1">
-                        <button onClick={() => incrementScore("A")} className="w-full h-8 bg-white/5 hover:bg-white/20 rounded-t-xl flex items-center justify-center text-[10px] text-gray-400 hover:text-white transition">▲</button>
-                        <ScoreControl value={scoreA} />
-                        <button onClick={() => decrementScore("A")} className="w-full h-8 bg-white/5 hover:bg-white/10 rounded-b-xl flex items-center justify-center text-[10px] text-gray-400 hover:text-white transition">▼</button>
+                        <button onClick={() => incrementScore(leftTeam)} className="w-full h-8 bg-white/5 hover:bg-white/20 rounded-t-xl flex items-center justify-center text-[10px] text-gray-400 hover:text-white transition">▲</button>
+                        <ScoreControl value={leftScore} />
+                        <button onClick={() => decrementScore(leftTeam)} className="w-full h-8 bg-white/5 hover:bg-white/10 rounded-b-xl flex items-center justify-center text-[10px] text-gray-400 hover:text-white transition">▼</button>
                       </div>
 
                       <span className="text-4xl font-black text-gray-700 pb-2">-</span>
                       
+                      {/* RIGHT SCORE CONTROLS (Dynamic) */}
                       <div className="flex flex-col items-center gap-1">
-                        <button onClick={() => incrementScore("B")} className="w-full h-8 bg-white/5 hover:bg-white/20 rounded-t-xl flex items-center justify-center text-[10px] text-gray-400 hover:text-white transition">▲</button>
-                        <ScoreControl value={scoreB} />
-                        <button onClick={() => decrementScore("B")} className="w-full h-8 bg-white/5 hover:bg-white/10 rounded-b-xl flex items-center justify-center text-[10px] text-gray-400 hover:text-white transition">▼</button>
+                        <button onClick={() => incrementScore(rightTeam)} className="w-full h-8 bg-white/5 hover:bg-white/20 rounded-t-xl flex items-center justify-center text-[10px] text-gray-400 hover:text-white transition">▲</button>
+                        <ScoreControl value={rightScore} />
+                        <button onClick={() => decrementScore(rightTeam)} className="w-full h-8 bg-white/5 hover:bg-white/10 rounded-b-xl flex items-center justify-center text-[10px] text-gray-400 hover:text-white transition">▼</button>
                       </div>
 
                     </div>
@@ -300,7 +305,7 @@ export default function Home() {
                     <button onClick={clearRightSide} className="mb-4 text-[10px] font-bold text-gray-500 hover:text-red-400 uppercase tracking-wide">Clear</button>
                   </div>
 
-                  {/* RIGHT TEAM */}
+                  {/* RIGHT TEAM (Dynamic) */}
                   <div className="flex flex-col items-center lg:items-end gap-2 w-full">
                     <input 
                       value={rightTeam === "A" ? teamNameA : teamNameB} 
