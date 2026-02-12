@@ -151,7 +151,6 @@ type StatKey =
   | "BLOCK_KILL" | "BLOCK_ERR"
   | "SET_EXC" | "SET_RUN" | "SET_ERR";
 
-// ✅ UPDATED POINTS SYSTEM FROM PDF (Pages 3-5)
 const POG_MULTIPLIERS: Record<RoleKey, Record<StatKey, number>> = {
   WINGERS: { 
     SERVE_ACE: 2, SERVE_SUCCESS: 1, SERVE_ERROR: -2,
@@ -205,46 +204,39 @@ function roleFromPlayer(p: Player | null | undefined): RoleKey {
   return "WINGERS";
 }
 
-// ✅ UPDATED CLASSIFIER TO SUPPORT "SUCCESS/ATTEMPT"
 function classifyForPog(skillKey: string, outcomeKey: string): StatKey | null {
   const isError = outcomeKey.includes("ERROR") || outcomeKey.includes("FAULT") || outcomeKey === "OUT" || outcomeKey === "NET";
   
   if (skillKey.includes("SERVE")) {
     if (outcomeKey.includes("ACE")) return "SERVE_ACE";
     if (isError) return "SERVE_ERROR";
-    return "SERVE_SUCCESS"; // "Successful Serve" (1pt)
+    return "SERVE_SUCCESS";
   }
-
   if (skillKey.includes("RECEIVE") || skillKey.includes("RECEPTION")) {
     if (isError) return "RECEPTION_ERR";
     if (outcomeKey.includes("PERFECT") || outcomeKey.includes("EXCELLENT")) return "RECEPTION_EXC";
-    return "RECEPTION_ATT"; // "Reception Attempt" (1pt)
+    return "RECEPTION_ATT";
   }
-
   if (skillKey.includes("DIG")) {
     if (isError) return "DIG_ERR";
     if (outcomeKey.includes("SUCCESS") || outcomeKey.includes("EXCELLENT") || outcomeKey.includes("PERFECT")) return "DIG_EXC";
-    return "DIG_ATT"; // "Dig Attempt" (1pt)
+    return "DIG_ATT";
   }
-
   if (skillKey.includes("SET")) {
     if (isError) return "SET_ERR";
     if (outcomeKey.includes("PERFECT") || outcomeKey.includes("EXCELLENT")) return "SET_EXC";
-    return "SET_RUN"; // "Running Set" (1pt for setter)
+    return "SET_RUN";
   }
-
   if (skillKey.includes("ATTACK") || skillKey.includes("SPIKE")) {
     if (isError || outcomeKey.includes("BLOCKED") || outcomeKey.includes("OUT")) return "ATTACK_ERR";
     if (outcomeKey.includes("KILL") || outcomeKey.includes("WIN") || outcomeKey.includes("POINT")) return "ATTACK_KILL";
-    return "ATTACK_ATT"; // "Attack Attempt" (0pt)
+    return "ATTACK_ATT";
   }
-
   if (skillKey.includes("BLOCK")) {
     if (isError) return "BLOCK_ERR";
     if (outcomeKey.includes("POINT") || outcomeKey.includes("KILL")) return "BLOCK_KILL";
-    return null; // PDF says "No need to tally attempts"
+    return null; 
   }
-
   return null;
 }
 
@@ -260,7 +252,6 @@ function calcPlayerPogPoints(p: Player, counts: Record<StatKey, number>): number
 }
 
 export type PositionGroup = "OH" | "OPP" | "S" | "L" | "MB" | "OTHER";
-// Counts here are simplified for the UI rankings
 export type PlayerMatchStats = { points: number; kills: number; aces: number; blockPoints: number; errors: number; counts: Record<StatKey, number>; pogPoints: number; };
 export type RankedPlayer = { playerId: string; name: string; teamId: TeamId; position: string; positionGroup: PositionGroup; stats: PlayerMatchStats; };
 
@@ -290,7 +281,6 @@ function computeMatchStatsFromEvents(params: { players: Player[]; events: Intern
     const k = classifyForPog(ev.skillKey, ev.outcomeKey);
     if (k) stats.counts[k] += 1;
     
-    // Aggregates for Leaderboard
     if (k === "ATTACK_KILL") stats.kills++;
     if (k === "SERVE_ACE") stats.aces++;
     if (k === "BLOCK_KILL") stats.blockPoints++;
@@ -340,8 +330,6 @@ type MatchStore = {
   scoreA: number; scoreB: number; servingTeam: TeamId; setServingTeam: (teamId: TeamId) => void;
   events: InternalEvent[]; logEvent: (input: { teamId: TeamId; slot: RotationSlot; skill: Skill; outcome: Outcome }) => void;
   undoLastEvent: () => void; undoFromEvent: (eventId: string) => void; endSet: (winner?: TeamId) => void; resetCourt: (teamId: TeamId) => void; resetMatch: () => void;
-  
-  // ✅ MANUAL SETTERS
   manualSetScore: (teamId: TeamId, score: number) => void;
   manualSetSets: (teamId: TeamId, sets: number) => void;
   incrementScore: (teamId: TeamId) => void;
@@ -476,10 +464,10 @@ export const useMatchStore = create<MatchStore>()(
           }
 
           let pointWinner: TeamId | undefined;
-          const isError = outcomeKey.includes("ERROR") || outcomeKey.includes("FAULT");
+          const isError = outcomeKey.includes("ERROR") || outcomeKey.includes("FAULT") || outcomeKey.includes("OUT") || outcomeKey.includes("NET");
           if (isError) pointWinner = opponentOf(teamId);
           else {
-            const isWin = outcomeKey.includes("KILL") || outcomeKey.includes("ACE") || outcomeKey.includes("POINT");
+            const isWin = outcomeKey.includes("KILL") || outcomeKey.includes("ACE") || outcomeKey.includes("POINT") || outcomeKey.includes("BLOCK_POINT");
             if ((skillKey.includes("SERVE") || skillKey.includes("SPIKE") || skillKey.includes("BLOCK")) && isWin) {
               pointWinner = teamId;
             }
@@ -495,20 +483,96 @@ export const useMatchStore = create<MatchStore>()(
           return { events: [e, ...state.events], toast: makeToast("Stat recorded.", "info") };
         }),
 
+        // ✅ RE-WRITTEN UNDO: "Smart Undo"
         undoLastEvent: () => set((state) => {
-          if (state.events.length === 0) return state;
-          const [last, ...rest] = state.events;
-          return { ...state, events: rest, toast: makeToast("Undid last stat.", "info") };
+          if (state.events.length === 0) {
+             // If no events, try to revert a manual score change if it looks recent?
+             // But we don't track manual score history separate from events. 
+             return { ...state, toast: makeToast("No events to undo.", "warn") };
+          }
+
+          const last = state.events[0];
+          const scoreChanged = (state.scoreA !== last.prevScoreA || state.scoreB !== last.prevScoreB);
+          
+          // CASE 1: Score has changed since the last logged event (The "Rally Undo" Case)
+          // This implies the user logged some stats, then hit "Increment Score".
+          // We want to undo EVERYTHING for that point.
+          if (scoreChanged) {
+             // 1. Identify the 'target' score state (the state BEFORE this rally started)
+             const targetA = last.prevScoreA;
+             const targetB = last.prevScoreB;
+
+             // 2. Find ALL contiguous events that belong to this rally (share the same prevScore)
+             // We iterate from the start (latest) backwards.
+             let count = 0;
+             for (const ev of state.events) {
+                if (ev.prevScoreA === targetA && ev.prevScoreB === targetB) {
+                   count++;
+                } else {
+                   break; 
+                }
+             }
+
+             // 3. The "State to Restore" is the 'prev...' of the OLDEST event in this group.
+             // events[count - 1] is the oldest event of this rally.
+             const restorePoint = state.events[count - 1];
+
+             // 4. Slice off these events
+             const remainingEvents = state.events.slice(count);
+
+             return {
+                ...state,
+                scoreA: restorePoint.prevScoreA,
+                scoreB: restorePoint.prevScoreB,
+                servingTeam: restorePoint.prevServingTeam,
+                courtA: restorePoint.prevCourtA,
+                courtB: restorePoint.prevCourtB,
+                liberoSwapA: restorePoint.prevLiberoSwapA,
+                liberoSwapB: restorePoint.prevLiberoSwapB,
+                rallyCount: restorePoint.prevRallyCount,
+                rallyInProgress: restorePoint.prevRallyInProgress,
+                serviceRunTeam: restorePoint.prevServiceRunTeam,
+                serviceRunCount: restorePoint.prevServiceRunCount,
+                events: remainingEvents,
+                toast: makeToast(`Undid Rally (${count} events).`, "info"),
+             };
+          }
+
+          // CASE 2: Score has NOT changed (Mid-rally undo)
+          // Just pop the single last event.
+          const [popped, ...rest] = state.events;
+          return {
+             ...state,
+             events: rest,
+             toast: makeToast("Undid last action.", "info"),
+          };
         }),
 
-        undoFromEvent: (eventId: string) => set((state) => {
-          const index = state.events.findIndex((e) => e.id === eventId);
-          if (index === -1) return state;
-          return { ...state, events: state.events.slice(index + 1), toast: makeToast("Reverted stats.", "info") };
-        }),
+        undoFromEvent: (eventId: string) =>
+          set((state) => {
+            const index = state.events.findIndex((e) => e.id === eventId);
+            if (index === -1) return state;
+            const target = state.events[index];
+            const remainingEvents = state.events.slice(index + 1);
+            return {
+              ...state, scoreA: target.prevScoreA, scoreB: target.prevScoreB, servingTeam: target.prevServingTeam, courtA: target.prevCourtA, courtB: target.prevCourtB,
+              liberoSwapA: target.prevLiberoSwapA, liberoSwapB: target.prevLiberoSwapB, rallyCount: target.prevRallyCount, rallyInProgress: target.prevRallyInProgress,
+              serviceRunTeam: target.prevServiceRunTeam, serviceRunCount: target.prevServiceRunCount, events: remainingEvents, toast: makeToast("Reverted state to before selected event.", "info"),
+            };
+          }),
 
-        resetCourt: (teamId) => set((state) => { if (teamId === "A") return { ...state, courtA: emptyCourt(), liberoSwapA: defaultLiberoSwap() }; return { ...state, courtB: emptyCourt(), liberoSwapB: defaultLiberoSwap() }; }),
-        resetMatch: () => set((state) => ({ ...state, courtA: emptyCourt(), courtB: emptyCourt(), selected: null, activeScoresheet: null, events: [], scoreA: 0, scoreB: 0, servingTeam: "A", toast: null, rallyCount: 0, rallyInProgress: false, serviceRunTeam: "A", serviceRunCount: 0, liberoSwapA: defaultLiberoSwap(), liberoSwapB: defaultLiberoSwap(), setNumber: 1, setsWonA: 0, setsWonB: 0, savedSets: [], setRules: defaultSetRules(), matchSummaryOpen: false })),
+        resetCourt: (teamId) =>
+          set((state) => {
+            if (teamId === "A") return { ...state, courtA: emptyCourt(), liberoSwapA: defaultLiberoSwap() };
+            return { ...state, courtB: emptyCourt(), liberoSwapB: defaultLiberoSwap() };
+          }),
+
+        resetMatch: () =>
+          set((state) => ({
+            ...state, courtA: emptyCourt(), courtB: emptyCourt(), selected: null, activeScoresheet: null, events: [], scoreA: 0, scoreB: 0, servingTeam: "A",
+            toast: null, rallyCount: 0, rallyInProgress: false, serviceRunTeam: "A", serviceRunCount: 0, liberoSwapA: defaultLiberoSwap(), liberoSwapB: defaultLiberoSwap(),
+            setNumber: 1, setsWonA: 0, setsWonB: 0, savedSets: [], setRules: defaultSetRules(), matchSummaryOpen: false,
+          })),
 
         manualSetScore: (teamId, score) => set((state) => ({ ...state, scoreA: teamId === "A" ? score : state.scoreA, scoreB: teamId === "B" ? score : state.scoreB })),
         manualSetSets: (teamId, sets) => set((state) => ({ ...state, setsWonA: teamId === "A" ? sets : state.setsWonA, setsWonB: teamId === "B" ? sets : state.setsWonB })),
@@ -580,15 +644,53 @@ export const useMatchStore = create<MatchStore>()(
           return { ...baseNext, savedSets: [saved, ...state.savedSets], setsWonA: nextSetsWonA, setsWonB: nextSetsWonB, setNumber: state.setNumber + 1, ...after as any, toast: makeToast(`Set ${state.setNumber} saved. Winner: Team ${autoWinner}.`, "info") };
         }),
 
-        decrementScore: (teamId) => set(state => ({
-            scoreA: teamId === "A" ? Math.max(0, state.scoreA - 1) : state.scoreA,
-            scoreB: teamId === "B" ? Math.max(0, state.scoreB - 1) : state.scoreB,
-        })),
+        // ✅ MANUAL DECREMENT (With Rotation Reversal)
+        decrementScore: (teamId) => set((state) => {
+            const nextScore = teamId === "A" ? Math.max(0, state.scoreA - 1) : Math.max(0, state.scoreB - 1);
+            let partial: Partial<MatchStore> = {
+                scoreA: teamId === "A" ? nextScore : state.scoreA,
+                scoreB: teamId === "B" ? nextScore : state.scoreB,
+            };
+
+            // If team was serving, they must have just won a sideout. Revert it.
+            if (state.servingTeam === teamId) {
+                const prevServing = opponentOf(teamId);
+                partial.servingTeam = prevServing;
+
+                const isLeft = state.leftTeam === teamId;
+                const currentCourt = teamId === "A" ? state.courtA : state.courtB;
+                const rotated = isLeft ? rotateCourtBackward(currentCourt) : rotateCourtForward(currentCourt);
+                const mapping = isLeft ? "BACKWARD" : "FORWARD";
+                const config = teamId === "A" ? state.liberoConfigA : state.liberoConfigB;
+                const swap = teamId === "A" ? state.liberoSwapA : state.liberoSwapB;
+
+                const applied = applyLiberoAutomation({
+                    teamId,
+                    court: rotated,
+                    players: state.players,
+                    config,
+                    swap,
+                    rotationMapping: mapping,
+                    servingTeam: prevServing
+                });
+
+                if (teamId === "A") {
+                    partial.courtA = applied.court;
+                    partial.liberoSwapA = applied.swap;
+                } else {
+                    partial.courtB = applied.court;
+                    partial.liberoSwapB = applied.swap;
+                }
+                if (applied.toast) partial.toast = applied.toast;
+            }
+
+            return partial;
+        }),
       };
     },
     {
       name: "vb-match-store",
-      version: 7, // Incrementing version to force clean state due to stat key changes
+      version: 8, // Increment version for new undo logic
       migrate: (persisted: any) => {
         const state = persisted?.state ?? persisted ?? {};
         const players = Array.isArray(state.players) ? state.players : [];

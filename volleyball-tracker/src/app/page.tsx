@@ -31,7 +31,7 @@ export default function Home() {
   const players = useMatchStore((s) => s.players);
   const assign = useMatchStore((s) => s.assignPlayerToSlot);
   const resetMatch = useMatchStore((s) => s.resetMatch);
-  const undoLastEvent = useMatchStore((s) => s.undoLastEvent);
+  const undoLastEvent = useMatchStore((s) => s.undoLastEvent); // ✅ This is now the smart undo
   const canUndo = useMatchStore((s) => (s.events?.length ?? 0) > 0);
   
   // Navigation & Layout Actions
@@ -54,10 +54,11 @@ export default function Home() {
   const setRules = useMatchStore((s) => s.setRules);
   const updateSetRules = useMatchStore((s) => s.updateSetRules);
 
-  // ✅ New Manual Actions (These will be in the updated store)
+  // Actions
   const incrementScore = useMatchStore((s) => s.incrementScore);
   const decrementScore = useMatchStore((s) => s.decrementScore);
   const manualSetSets = useMatchStore((s) => s.manualSetSets);
+  const endSet = useMatchStore((s) => s.endSet);
 
   // Match Summary
   const openMatchSummary = useMatchStore((s) => s.openMatchSummary);
@@ -79,13 +80,11 @@ export default function Home() {
     ? setRules.decidingPoints 
     : setRules.regularPoints;
 
-  // -- Drag & Drop Sensors --
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 120, tolerance: 8 } })
   );
 
-  // -- Scroll Locking Fix --
   const restoreScroll = useCallback(() => {
     document.documentElement.style.overflow = "";
     document.body.style.overflow = "";
@@ -95,8 +94,6 @@ export default function Home() {
   useEffect(() => {
     return () => restoreScroll();
   }, [restoreScroll]);
-
-  // -- Handlers --
 
   function onDragStart(_: DragStartEvent) {
     document.documentElement.style.overflow = "hidden";
@@ -155,7 +152,6 @@ export default function Home() {
     manualSetSets(teamId, newVal);
   };
 
-  // Toast Timer
   const toastTimer = useRef<number | null>(null);
   useEffect(() => {
     if (!toast) return;
@@ -164,7 +160,6 @@ export default function Home() {
     return () => { if (toastTimer.current) window.clearTimeout(toastTimer.current); };
   }, [toast, clearToast]);
 
-  // Styles
   const btnBase = "px-3 py-2 sm:px-5 sm:py-2.5 text-xs sm:text-sm font-bold rounded-xl shadow-sm transition-all active:scale-95 border border-transparent tracking-wide";
   const btnWhite = `${btnBase} bg-white text-gray-900 hover:bg-gray-100 hover:shadow-md`;
   const btnDark = `${btnBase} bg-gray-800 text-white hover:bg-gray-700`;
@@ -175,7 +170,7 @@ export default function Home() {
   return (
     <div className="flex h-screen w-full overflow-hidden bg-[var(--background)] text-white">
       
-      {/* 🟢 LEFT: Event Log Rail (Hidden on small screens) */}
+      {/* 🟢 LEFT: Event Log Rail */}
       <div className="hidden xl:block w-64 shrink-0 border-r border-white/10 shadow-sm z-10 overflow-hidden bg-white/5 backdrop-blur-sm">
         <EventLogRail />
       </div>
@@ -184,12 +179,9 @@ export default function Home() {
       <div className="flex-1 overflow-y-auto">
         <main className="min-h-full p-2 sm:p-6 flex flex-col">
           <DndContext sensors={sensors} onDragStart={onDragStart} onDragCancel={onDragCancel} onDragEnd={onDragEnd}>
-            
-            {/* Wrapper */}
             <div className="w-full max-w-[1600px] mx-auto flex flex-col gap-4 sm:gap-6 pb-20 flex-1">
               <MatchSummaryModal />
 
-              {/* Toast Notification */}
               {toast && (
                 <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[999] px-4 pointer-events-none">
                   <div className={`w-full max-w-md rounded-xl shadow-2xl border-2 px-5 py-3 flex items-start gap-4 pointer-events-auto transition-all animate-in fade-in slide-in-from-top-4 ${toast.type === "error" ? "bg-red-600 text-white border-red-400" : "bg-sky-600 text-white border-sky-400"}`} role="status">
@@ -199,9 +191,8 @@ export default function Home() {
                 </div>
               )}
 
-              {/* === ROW 1: HEADER CONTROLS === */}
+              {/* ROW 1: HEADER */}
               <div className="flex flex-wrap items-center justify-between gap-2">
-                {/* Left Group */}
                 <div className="flex gap-2 flex-wrap">
                   <button onClick={openMatchSummary} disabled={savedSetsCount === 0} className={savedSetsCount > 0 ? btnWhite : btnDisabled}>
                     SUMMARY {savedSetsCount > 0 && `(${savedSetsCount})`}
@@ -213,9 +204,9 @@ export default function Home() {
                   </button>
                 </div>
 
-                {/* Right Group */}
                 <div className="flex gap-2">
                   <button onClick={handleReset} className={btnRed}>RESET</button>
+                  <button onClick={() => endSet()} className={`${btnBase} bg-amber-500 text-white hover:bg-amber-600 shadow-md`}>END SET</button>
                   <button onClick={undoLastEvent} disabled={!canUndo} className={canUndo ? btnDark : btnDisabled}>UNDO</button>
                   <button onClick={swapSides} className={btnWhite}>SWAP</button>
                   <div className="hidden sm:flex gap-2">
@@ -225,7 +216,7 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* === ROW 2: SERVE BUTTONS === */}
+              {/* ROW 2: SERVE */}
               <div className="flex justify-center gap-4 py-1">
                  <button onClick={() => setServingTeam("A")} className={servingTeam === "A" ? btnBlue : btnWhite}>
                     Serve Team A
@@ -235,17 +226,15 @@ export default function Home() {
                   </button>
               </div>
 
-              {/* === ROW 3: SCOREBOARD & NAMES === */}
+              {/* ROW 3: SCOREBOARD */}
               <div className="flex flex-col gap-4 items-center w-full">
                 
-                {/* Set Info & Manual Set Controls */}
                 <div className="flex items-center gap-4 bg-gray-900/40 px-6 py-2 rounded-full border border-white/5">
                     <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
                       Set {setNumber} • Target {currentTargetPoints}
                     </div>
                     <div className="h-4 w-px bg-white/10" />
                     
-                    {/* Manual Sets Control */}
                     <div className="flex items-center gap-3">
                       <div className="flex items-center gap-1">
                         <button onClick={() => adjustSets("A", -1)} className="w-5 h-5 rounded hover:bg-white/10 text-white font-bold flex items-center justify-center text-xs">-</button>
@@ -261,10 +250,9 @@ export default function Home() {
                     </div>
                 </div>
 
-                {/* Main Scoreboard Layout */}
                 <div className="flex flex-col lg:grid lg:grid-cols-[1fr_auto_1fr] w-full gap-4 items-center lg:items-end">
                   
-                  {/* LEFT TEAM (Name & Timeouts) */}
+                  {/* LEFT TEAM */}
                   <div className="flex flex-col items-center lg:items-start gap-2 w-full">
                     <input 
                       value={leftTeam === "A" ? teamNameA : teamNameB} 
@@ -277,26 +265,24 @@ export default function Home() {
                     </div>
                   </div>
 
-                  {/* CENTER SCORE DISPLAY (With Arrows) */}
+                  {/* CENTER SCORE DISPLAY */}
                   <div className="flex items-end gap-4 pb-2">
                     <button onClick={clearLeftSide} className="mb-4 text-[10px] font-bold text-gray-500 hover:text-red-400 uppercase tracking-wide">Clear</button>
 
                     <div className="flex items-center gap-3 bg-gray-900/80 p-3 rounded-3xl border border-white/10 shadow-2xl">
                       
-                      {/* Score A Control */}
                       <div className="flex flex-col items-center gap-1">
                         <button onClick={() => incrementScore("A")} className="w-full h-8 bg-white/5 hover:bg-white/20 rounded-t-xl flex items-center justify-center text-[10px] text-gray-400 hover:text-white transition">▲</button>
                         <ScoreControl value={scoreA} />
-                        <button onClick={() => decrementScore("A")} className="w-full h-8 bg-white/5 hover:bg-white/20 rounded-b-xl flex items-center justify-center text-[10px] text-gray-400 hover:text-white transition">▼</button>
+                        <button onClick={() => decrementScore("A")} className="w-full h-8 bg-white/5 hover:bg-white/10 rounded-b-xl flex items-center justify-center text-[10px] text-gray-400 hover:text-white transition">▼</button>
                       </div>
 
                       <span className="text-4xl font-black text-gray-700 pb-2">-</span>
                       
-                      {/* Score B Control */}
                       <div className="flex flex-col items-center gap-1">
                         <button onClick={() => incrementScore("B")} className="w-full h-8 bg-white/5 hover:bg-white/20 rounded-t-xl flex items-center justify-center text-[10px] text-gray-400 hover:text-white transition">▲</button>
                         <ScoreControl value={scoreB} />
-                        <button onClick={() => decrementScore("B")} className="w-full h-8 bg-white/5 hover:bg-white/20 rounded-b-xl flex items-center justify-center text-[10px] text-gray-400 hover:text-white transition">▼</button>
+                        <button onClick={() => decrementScore("B")} className="w-full h-8 bg-white/5 hover:bg-white/10 rounded-b-xl flex items-center justify-center text-[10px] text-gray-400 hover:text-white transition">▼</button>
                       </div>
 
                     </div>
@@ -304,7 +290,7 @@ export default function Home() {
                     <button onClick={clearRightSide} className="mb-4 text-[10px] font-bold text-gray-500 hover:text-red-400 uppercase tracking-wide">Clear</button>
                   </div>
 
-                  {/* RIGHT TEAM (Name & Timeouts) */}
+                  {/* RIGHT TEAM */}
                   <div className="flex flex-col items-center lg:items-end gap-2 w-full">
                     <input 
                       value={rightTeam === "A" ? teamNameA : teamNameB} 
@@ -320,44 +306,32 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* === ROW 4: BENCH & COURT === */}
-              {/* Stacks on mobile, Grid on Desktop */}
+              {/* ROW 4: COURT */}
               <div className="flex flex-col lg:grid lg:grid-cols-[160px_1fr_160px] gap-4 items-start flex-1 min-h-0">
-                {/* Bench Left */}
                 <div className="order-2 lg:order-1 flex justify-center w-full lg:w-auto">
                   <BenchRail teamId={leftTeam} />
                 </div>
-                
-                {/* Court */}
                 <div className="order-1 lg:order-2 w-full h-full min-h-[350px]">
                   <Court />
                 </div>
-
-                {/* Bench Right */}
                 <div className="order-3 flex justify-center w-full lg:w-auto">
                   <BenchRail teamId={rightTeam} />
                 </div>
               </div>
 
               <SlotPanel />
-              
-              {/* ✅ MOBILE SCORING PANEL (Hidden on Desktop) */}
-              {/* This prevents it from overlapping the court on large screens */}
               <div className="lg:hidden">
                 <ScoresheetPanel />
               </div>
-
             </div>
           </DndContext>
         </main>
       </div>
 
-      {/* 🟢 RIGHT: Action Sidebar (Visible ONLY on Desktop) */}
       <div className="hidden lg:block w-72 shrink-0 border-l border-white/10 shadow-sm z-10 overflow-hidden bg-white/5 backdrop-blur-sm">
         <ActionSidebar />
       </div>
 
-      {/* 🟢 MODAL: Rules Settings */}
       {isRulesOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
           <div className="w-full max-w-sm bg-white rounded-2xl shadow-2xl overflow-hidden text-gray-900 border-4 border-gray-100">
@@ -391,18 +365,14 @@ export default function Home() {
           </div>
         </div>
       )}
-
     </div>
   );
 }
 
-// --- Helper for deciding set logic ---
 function isDecidingSet(setsA: number, setsB: number, bestOf: number) {
   const needToWin = Math.ceil(bestOf / 2);
   return setsA === needToWin - 1 && setsB === needToWin - 1;
 }
-
-// --- SUB COMPONENTS ---
 
 function ScoreControl({ value }: { value: number }) {
   return (
