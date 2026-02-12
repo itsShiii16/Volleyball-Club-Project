@@ -32,7 +32,6 @@ export default function Home() {
   const assign = useMatchStore((s) => s.assignPlayerToSlot);
   const resetMatch = useMatchStore((s) => s.resetMatch);
   
-  // Undo Logic
   const undoLastEvent = useMatchStore((s) => s.undoLastEvent);
   const canUndo = useMatchStore((s) => {
     if ((s.events?.length ?? 0) > 0) return true;
@@ -40,22 +39,17 @@ export default function Home() {
     return false;
   });
   
-  // Navigation & Layout Actions
   const rotateTeam = useMatchStore((s) => s.rotateTeam);
   const resetCourt = useMatchStore((s) => s.resetCourt);
   const swapSides = useMatchStore((s) => s.swapSides);
   
-  // Game State
   const servingTeam = useMatchStore((s) => s.servingTeam);
   const setServingTeam = useMatchStore((s) => s.setServingTeam);
   const leftTeam = useMatchStore((s) => s.leftTeam);
   const rightTeam = opponentOf(leftTeam);
-  
-  // Scores
   const scoreA = useMatchStore((s) => s.scoreA);
   const scoreB = useMatchStore((s) => s.scoreB);
   
-  // ✅ DYNAMIC SCORE GETTERS
   const leftScore = leftTeam === "A" ? scoreA : scoreB;
   const rightScore = rightTeam === "A" ? scoreA : scoreB;
 
@@ -63,32 +57,32 @@ export default function Home() {
   const setsWonB = useMatchStore((s) => s.setsWonB);
   const setNumber = useMatchStore((s) => s.setNumber);
 
-  // Rules
+  // ✅ SUBS SELECTORS
+  const subsUsedA = useMatchStore((s) => s.subsUsedA);
+  const subsUsedB = useMatchStore((s) => s.subsUsedB);
+  const leftSubs = leftTeam === "A" ? subsUsedA : subsUsedB;
+  const rightSubs = rightTeam === "A" ? subsUsedA : subsUsedB;
+
   const setRules = useMatchStore((s) => s.setRules);
   const updateSetRules = useMatchStore((s) => s.updateSetRules);
 
-  // Actions
   const incrementScore = useMatchStore((s) => s.incrementScore);
   const decrementScore = useMatchStore((s) => s.decrementScore);
   const manualSetSets = useMatchStore((s) => s.manualSetSets);
   const endSet = useMatchStore((s) => s.endSet);
 
-  // Match Summary
   const openMatchSummary = useMatchStore((s) => s.openMatchSummary);
   const savedSetsCount = useMatchStore((s) => (s.savedSets?.length ?? 0));
 
-  // Toast
   const toast = useMatchStore((s) => s.toast);
   const clearToast = useMatchStore((s) => s.clearToast);
 
-  // Local State
   const [teamNameA, setTeamNameA] = useState("TEAM A NAME");
   const [teamNameB, setTeamNameB] = useState("TEAM B NAME");
   const [timeoutsA, setTimeoutsA] = useState([false, false, false]);
   const [timeoutsB, setTimeoutsB] = useState([false, false, false]);
   const [isRulesOpen, setIsRulesOpen] = useState(false);
 
-  // Computed
   const currentTargetPoints = isDecidingSet(setsWonA, setsWonB, setRules.bestOf) 
     ? setRules.decidingPoints 
     : setRules.regularPoints;
@@ -182,13 +176,10 @@ export default function Home() {
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-[var(--background)] text-white">
-      
-      {/* 🟢 LEFT: Event Log Rail */}
       <div className="hidden xl:block w-64 shrink-0 border-r border-white/10 shadow-sm z-10 overflow-hidden bg-white/5 backdrop-blur-sm">
         <EventLogRail />
       </div>
 
-      {/* 🟢 CENTER: Main Content */}
       <div className="flex-1 overflow-y-auto">
         <main className="min-h-full p-2 sm:p-6 flex flex-col">
           <DndContext sensors={sensors} onDragStart={onDragStart} onDragCancel={onDragCancel} onDragEnd={onDragEnd}>
@@ -204,7 +195,7 @@ export default function Home() {
                 </div>
               )}
 
-              {/* ROW 1: HEADER */}
+              {/* HEADER */}
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex gap-2 flex-wrap">
                   <button onClick={openMatchSummary} disabled={savedSetsCount === 0} className={savedSetsCount > 0 ? btnWhite : btnDisabled}>
@@ -229,7 +220,7 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* ROW 2: SERVE BUTTONS (Dynamic) */}
+              {/* SERVE BUTTONS */}
               <div className="flex justify-center gap-4 py-1">
                  <button onClick={() => setServingTeam(leftTeam)} className={servingTeam === leftTeam ? btnBlue : btnWhite}>
                     Serve Left
@@ -239,7 +230,7 @@ export default function Home() {
                   </button>
               </div>
 
-              {/* ROW 3: SCOREBOARD */}
+              {/* SCOREBOARD */}
               <div className="flex flex-col gap-4 items-center w-full">
                 
                 <div className="flex items-center gap-4 bg-gray-900/40 px-6 py-2 rounded-full border border-white/5">
@@ -265,7 +256,7 @@ export default function Home() {
 
                 <div className="flex flex-col lg:grid lg:grid-cols-[1fr_auto_1fr] w-full gap-4 items-center lg:items-end">
                   
-                  {/* LEFT TEAM (Dynamic) */}
+                  {/* LEFT TEAM */}
                   <div className="flex flex-col items-center lg:items-start gap-2 w-full">
                     <input 
                       value={leftTeam === "A" ? teamNameA : teamNameB} 
@@ -274,17 +265,22 @@ export default function Home() {
                     />
                     <div className="flex items-center gap-3 px-2">
                       <TimeoutPips value={leftTeam === "A" ? timeoutsA : timeoutsB} onToggle={(idx) => toggleTimeout(leftTeam, idx)} />
-                      <button onClick={() => useNextTimeout(leftTeam)} className="text-[10px] font-bold bg-white/10 hover:bg-white/20 px-2 py-1 rounded text-gray-300 uppercase tracking-wider transition">Timeout</button>
+                      <button onClick={() => useNextTimeout(leftTeam)} className="text-[10px] font-bold bg-white/10 hover:bg-white/20 px-2 py-1 rounded text-gray-300 uppercase tracking-wider transition">T/O</button>
+                      
+                      <div className="h-4 w-px bg-white/20 mx-1"></div>
+                      
+                      {/* ✅ SUBS PIPS */}
+                      <SubsPips count={leftSubs} />
+                      <div className="text-[10px] font-bold text-blue-300 uppercase tracking-wider">SUBS</div>
                     </div>
                   </div>
 
-                  {/* CENTER SCORE DISPLAY */}
+                  {/* CENTER SCORE */}
                   <div className="flex items-end gap-4 pb-2">
                     <button onClick={clearLeftSide} className="mb-4 text-[10px] font-bold text-gray-500 hover:text-red-400 uppercase tracking-wide">Clear</button>
 
                     <div className="flex items-center gap-3 bg-gray-900/80 p-3 rounded-3xl border border-white/10 shadow-2xl">
                       
-                      {/* LEFT SCORE CONTROLS (Dynamic) */}
                       <div className="flex flex-col items-center gap-1">
                         <button onClick={() => incrementScore(leftTeam)} className="w-full h-8 bg-white/5 hover:bg-white/20 rounded-t-xl flex items-center justify-center text-[10px] text-gray-400 hover:text-white transition">▲</button>
                         <ScoreControl value={leftScore} />
@@ -293,7 +289,6 @@ export default function Home() {
 
                       <span className="text-4xl font-black text-gray-700 pb-2">-</span>
                       
-                      {/* RIGHT SCORE CONTROLS (Dynamic) */}
                       <div className="flex flex-col items-center gap-1">
                         <button onClick={() => incrementScore(rightTeam)} className="w-full h-8 bg-white/5 hover:bg-white/20 rounded-t-xl flex items-center justify-center text-[10px] text-gray-400 hover:text-white transition">▲</button>
                         <ScoreControl value={rightScore} />
@@ -305,7 +300,7 @@ export default function Home() {
                     <button onClick={clearRightSide} className="mb-4 text-[10px] font-bold text-gray-500 hover:text-red-400 uppercase tracking-wide">Clear</button>
                   </div>
 
-                  {/* RIGHT TEAM (Dynamic) */}
+                  {/* RIGHT TEAM */}
                   <div className="flex flex-col items-center lg:items-end gap-2 w-full">
                     <input 
                       value={rightTeam === "A" ? teamNameA : teamNameB} 
@@ -313,15 +308,20 @@ export default function Home() {
                       className="w-full text-center lg:text-right font-black bg-transparent text-white text-2xl sm:text-3xl uppercase tracking-tight focus:bg-white/10 rounded px-2 outline-none border-b-2 border-transparent focus:border-white/50 transition-all"
                     />
                     <div className="flex items-center gap-3 px-2">
+                      <div className="text-[10px] font-bold text-blue-300 uppercase tracking-wider">SUBS</div>
+                      <SubsPips count={rightSubs} />
+                      
+                      <div className="h-4 w-px bg-white/20 mx-1"></div>
+
+                      <button onClick={() => useNextTimeout(rightTeam)} className="text-[10px] font-bold bg-white/10 hover:bg-white/20 px-2 py-1 rounded text-gray-300 uppercase tracking-wider transition">T/O</button>
                       <TimeoutPips value={rightTeam === "A" ? timeoutsA : timeoutsB} onToggle={(idx) => toggleTimeout(rightTeam, idx)} />
-                      <button onClick={() => useNextTimeout(rightTeam)} className="text-[10px] font-bold bg-white/10 hover:bg-white/20 px-2 py-1 rounded text-gray-300 uppercase tracking-wider transition">Timeout</button>
                     </div>
                   </div>
 
                 </div>
               </div>
 
-              {/* ROW 4: COURT */}
+              {/* COURT */}
               <div className="flex flex-col lg:grid lg:grid-cols-[160px_1fr_160px] gap-4 items-start flex-1 min-h-0">
                 <div className="order-2 lg:order-1 flex justify-center w-full lg:w-auto">
                   <BenchRail teamId={leftTeam} />
@@ -412,6 +412,20 @@ function TimeoutPips({ value, onToggle }: { value: boolean[]; onToggle: (idx: nu
             used ? "bg-red-500 border-red-500" : "bg-white/20 border-white/40"
           ].join(" ")}
           title={used ? "Timeout used" : "Timeout available"}
+        />
+      ))}
+    </div>
+  );
+}
+
+// ✅ NEW COMPONENT: SUBS PIPS
+function SubsPips({ count }: { count: number }) {
+  return (
+    <div className="flex items-center gap-1">
+      {[...Array(6)].map((_, i) => (
+        <div
+          key={i}
+          className={`h-2.5 w-2.5 rounded-sm border ${i < count ? "bg-blue-500 border-blue-400" : "bg-white/10 border-white/30"}`}
         />
       ))}
     </div>
