@@ -3,6 +3,8 @@
 import { useMemo } from "react";
 import { useMatchStore } from "@/store/matchStore";
 import { slotLabel, type Skill, type Outcome } from "@/lib/volleyball";
+// Import our state machine logic
+import { getValidNextState, isActionAllowed } from "@/lib/statemachine";
 
 type Btn = { skill: Skill; outcome: Outcome; label: string; short: string };
 
@@ -78,12 +80,12 @@ function buttonsForContext(
     { skill: "DIG", outcome: "ERROR", label: "Error", short: "Err" },
   ];
 
-  // 3. Setting (VISIBLE ONLY FOR SETTERS)
-  const setBtns: Btn[] = isSetter ? [
+  // 3. Setting (Visible to all for OOS plays)
+  const setBtns: Btn[] = [
     { skill: "SET", outcome: "PERFECT", label: "Excellent", short: "Exc" },
     { skill: "SET", outcome: "SUCCESS", label: "Running", short: "Run" },
     { skill: "SET", outcome: "ERROR", label: "Error", short: "Err" },
-  ] : [];
+  ];
 
   // 4. Blocking
   const block: Btn[] = [
@@ -94,23 +96,28 @@ function buttonsForContext(
   // 5. Attacking
   const attack: Btn[] = [
     { skill: "SPIKE", outcome: "KILL", label: "Kill", short: "Kill" },
+    { skill: "SPIKE", outcome: "KILL_ERROR", label: "Kill (Opp Error)", short: "KillErr" }, // ✅ ADDED
     { skill: "SPIKE", outcome: "SUCCESS", label: "Attempt", short: "Att" },
     { skill: "SPIKE", outcome: "ERROR", label: "Error", short: "Err" },
   ];
 
   // 6. Serving
   const serve: Btn[] = opts.isServingPlayer ? [
-    { skill: "SERVE", outcome: "ACE", label: "Ace", short: "Ace" },
+    { skill: "SERVE", outcome: "ACE", label: "Clean Ace", short: "Ace" },
+    { skill: "SERVE", outcome: "ACE_ERROR", label: "Ace (Opp Error)", short: "AceErr" },
     { skill: "SERVE", outcome: "SUCCESS", label: "In Play", short: "In" },
     { skill: "SERVE", outcome: "ERROR", label: "Error", short: "Err" },
   ] : [];
 
   // --- ASSEMBLY ---
+  
+  // Libero: Removed '...serve' to disallow serving. Can Dig/Rec/Set.
   if (opts.libero) return [...receive, ...dig, ...setBtns];
-  if (isSetter) return [...serve, ...setBtns, ...receive, ...dig, ...(opts.frontRow ? block : []), ...attack];
-  if (isMiddlePosition(p)) return [...serve, ...receive, ...dig, ...(opts.frontRow ? block : []), ...attack];
 
-  return [...serve, ...receive, ...dig, ...(opts.frontRow ? block : []), ...attack];
+  if (isSetter) return [...serve, ...setBtns, ...receive, ...dig, ...(opts.frontRow ? block : []), ...attack];
+  if (isMiddlePosition(p)) return [...serve, ...receive, ...dig, ...setBtns, ...(opts.frontRow ? block : []), ...attack];
+
+  return [...serve, ...receive, ...dig, ...setBtns, ...(opts.frontRow ? block : []), ...attack];
 }
 
 export default function ActionSidebar() {
@@ -118,6 +125,7 @@ export default function ActionSidebar() {
   const closeScoresheet = useMatchStore((s) => s.closeScoresheet);
   const selectSlot = useMatchStore((s) => s.selectSlot);
   const logEvent = useMatchStore((s) => s.logEvent);
+  const undoLastEvent = useMatchStore((s) => s.undoLastEvent);
   
   const players = useMatchStore((s) => s.players);
   const courtA = useMatchStore((s) => s.courtA);
@@ -126,7 +134,6 @@ export default function ActionSidebar() {
   
   const servingTeam = useMatchStore((s) => s.servingTeam);
   const leftTeam = useMatchStore((s) => s.leftTeam);
-  
   const currentScoreA = useMatchStore((s) => s.scoreA);
   const currentScoreB = useMatchStore((s) => s.scoreB);
 
@@ -141,45 +148,59 @@ export default function ActionSidebar() {
 
     const frontRow = isFrontRowSlot(slot);
     const libero = isLiberoPosition(player.position);
-    const isSetter = isSetterPosition(player.position); // ✅ Check if player is Setter
+    const isSetter = isSetterPosition(player.position);
     const isServingTeam = (teamId === servingTeam);
     const servingSlot = teamId === leftTeam ? 1 : 5;
     const isServingPlayer = isServingTeam && slot === servingSlot;
 
-    const btns = buttonsForContext(player.position, { 
+    const allBtns = buttonsForContext(player.position, { 
       frontRow, libero, isServingTeam, isServingPlayer 
     });
     
-    // ✅ Separate Groups for Each Skill
+    const lastEvent = events.length > 0 ? events[0] : undefined;
+    const validState = getValidNextState(lastEvent, servingTeam);
+    
+    const validBtns = allBtns.filter(b => {
+        // A. Is action allowed by State Machine?
+        if (!isActionAllowed(b.skill, teamId, validState)) return false;
+
+        // B. Double Contact Rule (Override for Serve)
+        const isNextActionServe = validState.allowedSkills.includes("SERVE");
+        if (!isNextActionServe && lastEvent && lastEvent.teamId === teamId && lastEvent.playerId === player.id) {
+            if (lastEvent.skillKey !== "BLOCK") return false; 
+        }
+
+        // C. Contextual Player Restrictions (Receiver/Libero)
+        if (lastEvent && lastEvent.skillKey === "RECEIVE" && lastEvent.teamId === teamId) {
+             if (player.id === lastEvent.playerId) return false;
+             if (libero) return false; 
+        }
+
+        return true;
+    });
+
     const groups: Record<string, Btn[]> = {
-        "SERVE": [],
-        "RECEIVE": [],
-        "SET": [],
-        "ATTACK": [],
-        "BLOCK": [],
-        "DIG": []
+        "SERVE": [], "RECEIVE": [], "SET": [], "ATTACK": [], "BLOCK": [], "DIG": []
     };
 
-    btns.forEach(b => {
+    validBtns.forEach(b => {
         let key = b.skill;
         if (key === "SPIKE") key = "ATTACK";
         if (groups[key]) groups[key].push(b);
     });
 
-    // ✅ CONDITIONAL ORDER: If Setter, put "SET" at the very top (after Serve if serving)
     const ORDER = isSetter 
         ? ["SET", "SERVE", "RECEIVE", "ATTACK", "BLOCK", "DIG"] 
         : ["SERVE", "RECEIVE", "SET", "ATTACK", "BLOCK", "DIG"];
 
     const visibleGroups = ORDER
         .filter(key => groups[key] && groups[key].length > 0)
-        .map(key => ({
-            title: key,
-            btns: groups[key]
-        }));
+        .map(key => ({ title: key, btns: groups[key] }));
 
-    return { teamId, slot, player, visibleGroups, frontRow };
-  }, [active, players, courtA, courtB, servingTeam, leftTeam]);
+    const isMyTurn = (teamId === validState.actingTeam);
+
+    return { teamId, slot, player, visibleGroups, frontRow, isMyTurn, waitingFor: validState.actingTeam };
+  }, [active, players, courtA, courtB, servingTeam, leftTeam, events]);
 
   const historyGroups = useMemo(() => {
     const groups: { scoreLabel: string; isCurrent: boolean; events: typeof events }[] = [];
@@ -214,7 +235,6 @@ export default function ActionSidebar() {
   return (
     <aside className="flex h-full w-full flex-col border-l border-gray-200 bg-white">
       
-      {/* HEADER */}
       <div className="border-b border-gray-100 p-4 bg-white z-10 shrink-0 shadow-sm">
         <div className="flex justify-between items-start">
             <div>
@@ -234,16 +254,25 @@ export default function ActionSidebar() {
         </div>
       </div>
 
-      {/* ✅ ACTION GRID - BIGGER BUTTONS (Preserved Layout) */}
       <div className="flex-1 overflow-y-auto p-4 bg-gray-50/50 space-y-6">
         {info.visibleGroups.length === 0 ? (
-           <div className="text-base font-medium text-gray-400 text-center py-10">
-             No actions available.
+           <div className="flex flex-col items-center justify-center py-10 text-center space-y-3">
+             <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center text-2xl grayscale opacity-50">
+               🏐
+             </div>
+             {info.isMyTurn ? (
+                <div className="text-base font-medium text-gray-500">
+                    No valid actions for this player right now.
+                </div>
+             ) : (
+                <div className="text-base font-bold text-gray-400">
+                    Waiting for {info.waitingFor === "A" ? "Team A" : "Team B"}...
+                </div>
+             )}
            </div>
         ) : (
           info.visibleGroups.map((group) => (
             <div key={group.title}>
-              {/* Category Header */}
               <div className="flex items-center gap-2 mb-3">
                  <span className="text-[11px] font-black text-gray-500 uppercase tracking-widest bg-gray-200 px-2 py-0.5 rounded">
                    {group.title}
@@ -251,7 +280,6 @@ export default function ActionSidebar() {
                  <div className="h-px bg-gray-200 flex-1" />
               </div>
 
-              {/* 2-Column Grid */}
               <div className="grid grid-cols-2 gap-3">
                 {group.btns.map((b, i) => {
                   const theme = getOutcomeTheme(b.outcome);
@@ -266,14 +294,11 @@ export default function ActionSidebar() {
                           outcome: b.outcome,
                         })
                       }
-                      // ✅ PRESERVED SIZE: py-4 px-2
                       className={`relative flex flex-col justify-center items-center py-4 px-2 rounded-xl border-2 shadow-sm transition-all active:scale-[0.96] ${theme.btn}`}
                     >
-                      {/* Outcome Label (Large) */}
                       <span className="font-black text-base uppercase leading-none text-center">
                         {b.label}
                       </span>
-                      {/* Status Dot */}
                       <div className={`absolute top-2 right-2 w-2 h-2 rounded-full ${theme.dot}`} />
                     </button>
                   );
@@ -284,10 +309,15 @@ export default function ActionSidebar() {
         )}
       </div>
 
-      {/* ✅ EVENT HISTORY LOG - PRESERVED STYLING */}
       <div className="border-t bg-white flex flex-col max-h-[35%] shrink-0">
-        <div className="p-2 bg-gray-50 border-b text-[10px] font-bold uppercase text-gray-400 tracking-widest text-center">
-          Event Log
+        <div className="p-2 bg-gray-50 border-b flex justify-between items-center px-4">
+            <span className="text-[10px] font-bold uppercase text-gray-400 tracking-widest">Event Log</span>
+            <button 
+                onClick={undoLastEvent}
+                className="text-[10px] font-bold uppercase text-blue-500 hover:text-blue-700 bg-blue-50 px-2 py-1 rounded transition"
+            >
+                Undo Last ↩
+            </button>
         </div>
         
         <div className="overflow-y-auto p-3 space-y-3">
@@ -301,18 +331,18 @@ export default function ActionSidebar() {
                    {group.isCurrent && <span>Live</span>}
                 </div>
                 <div className="p-1.5 space-y-1.5">
-                   {group.events.map((e) => {
+                   {group.events.map((e, eIdx) => {
                       const theme = getOutcomeTheme(e.outcome);
-                      // ✅ Find Player & Jersey
                       const p = players.find((x) => x.id === e.playerId);
                       const jersey = p ? p.jerseyNumber : "?";
+                      
+                      // Check if this is the absolute most recent event
+                      const isMostRecent = gIdx === 0 && eIdx === 0;
 
-                      // ✅ Special rendering for SUBS (if present in log)
                       if (e.skillKey === "SUBSTITUTION") {
                           return (
                             <div key={e.id} className="flex items-center justify-between text-xs bg-gray-50 p-1.5 rounded border border-gray-200 shadow-sm">
                                <span className="text-[10px] font-bold text-gray-500 uppercase tracking-tight">Substitution</span>
-                               <span className="font-mono text-gray-400 text-[9px]">UNDOABLE</span>
                             </div>
                           );
                       }
@@ -320,16 +350,30 @@ export default function ActionSidebar() {
                       return (
                         <div key={e.id} className="flex items-center justify-between text-sm bg-white p-2 rounded border border-gray-200 shadow-sm">
                            <div className="flex items-center gap-3">
-                              {/* Jersey Number */}
                               <span className="font-black text-gray-500 text-xs w-6 text-center bg-gray-100 rounded py-0.5">#{jersey}</span>
-                              {/* Skill Name */}
                               <div className="font-extrabold text-gray-800 uppercase tracking-tight">
                                   {e.skill.replace("SPIKE", "ATK").substring(0, 3)}
                               </div>
                            </div>
-                           {/* Outcome Badge - Bold & Readable */}
-                           <div className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wide border ${theme.badge}`}>
-                              {e.outcome.replace("POINT", "KILL").replace("SUCCESS", "GOOD").replace("PERFECT", "EXC")}
+                           <div className="flex items-center gap-2">
+                               <div className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wide border ${theme.badge}`}>
+                                  {e.outcome.replace("POINT", "KILL")
+                                            .replace("SUCCESS", "GOOD")
+                                            .replace("PERFECT", "EXC")
+                                            .replace("ACE_ERROR", "ACE(ERR)")
+                                            .replace("KILL_ERROR", "KILL(ERR)")}
+                               </div>
+                               
+                               {/* DELETE BUTTON: ONLY ON MOST RECENT EVENT */}
+                               {isMostRecent && (
+                                   <button 
+                                     onClick={undoLastEvent}
+                                     className="w-5 h-5 flex items-center justify-center rounded-full bg-gray-100 text-gray-400 hover:bg-red-100 hover:text-red-500 transition"
+                                     title="Undo this event"
+                                   >
+                                     ✕
+                                   </button>
+                               )}
                            </div>
                         </div>
                       );
