@@ -167,7 +167,7 @@ export default function ActionSidebar() {
     const isSetter = isSetterPosition(player.position); 
     const isServingTeam = (teamId === servingTeam);
     
-    // ✅ FIX: Dynamic serving slot relative to court side
+    // Dynamic serving slot
     const isLeftTeam = teamId === leftTeam;
     const servingSlot = isLeftTeam ? 1 : 5;
     const isServingPlayer = isServingTeam && slot === servingSlot;
@@ -210,7 +210,24 @@ export default function ActionSidebar() {
           btns = [];
       }
     } else if (rallyState === "IN_RALLY") {
-      btns = btns.filter((b) => b.skill !== "SERVE" && b.skill !== "RECEIVE");
+      // ✅ NEW: Attack Flow Control
+      const lastEvent = events.length > 0 ? events[0] : null;
+      
+      // Check if last event was an Attack that stayed in play
+      if (lastEvent && (lastEvent.skill === "SPIKE" || lastEvent.skill === "ATTACK") && 
+         (lastEvent.outcome === "SUCCESS" || lastEvent.outcome === "IN_PLAY")) {
+          
+          if (teamId !== lastEvent.teamId) {
+              // Opponent side: Must DIG
+              btns = btns.filter(b => b.skill === "DIG");
+          } else {
+              // Attacking side: Wait (ball is over)
+              btns = [];
+          }
+      } else {
+          // Standard rally: Allow everything except serve/receive
+          btns = btns.filter((b) => b.skill !== "SERVE" && b.skill !== "RECEIVE");
+      }
     }
     
     // ✅ Separate Groups for Each Skill

@@ -176,7 +176,7 @@ export default function ScoresheetPanel() {
     const frontRow = isFrontRowSlot(slot);
     const libero = isLiberoPosition(player.position);
     
-    // ✅ FIX: Dynamic serving slot relative to court side
+    // Determine serving context for button generation
     const isServingTeam = (teamId === servingTeam);
     const isLeftTeam = teamId === leftTeam;
     const servingSlot = isLeftTeam ? 1 : 5;
@@ -220,7 +220,19 @@ export default function ScoresheetPanel() {
           btns = [];
       }
     } else if (rallyState === "IN_RALLY") {
-      btns = btns.filter((b) => b.skill !== "SERVE" && b.skill !== "RECEIVE");
+      // ✅ NEW: Attack Flow Control
+      const lastEvent = events.length > 0 ? events[0] : null;
+      if (lastEvent && (lastEvent.skill === "SPIKE" || lastEvent.skill === "ATTACK") && 
+         (lastEvent.outcome === "SUCCESS" || lastEvent.outcome === "IN_PLAY")) {
+          
+          if (teamId !== lastEvent.teamId) {
+              btns = btns.filter(b => b.skill === "DIG");
+          } else {
+              btns = [];
+          }
+      } else {
+          btns = btns.filter((b) => b.skill !== "SERVE" && b.skill !== "RECEIVE");
+      }
     }
     const playerEvents = events.filter((e) => e.playerId === player.id);
 
