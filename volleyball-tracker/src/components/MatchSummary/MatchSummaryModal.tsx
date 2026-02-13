@@ -306,7 +306,6 @@ export default function MatchSummaryModal() {
                         <th colSpan={3} className="p-1 border-r border-gray-700 bg-indigo-900">Serving</th>
                         <th colSpan={9} className="p-1 bg-gray-700">Defense & Transition</th>
                       </tr>
-                      {/* ✅ FIXED HEADER WITH ROWSPAN */}
                       <tr className="bg-gray-100 text-gray-800 border-b border-gray-300 font-bold uppercase text-[10px]">
                         <th className="px-2 py-2 border-r border-gray-300 w-10 sticky left-0 bg-gray-200 z-10" rowSpan={2}>#</th>
                         <th className="px-2 py-2 border-r border-gray-300 text-left w-32 sticky left-10 bg-gray-200 z-10" rowSpan={2}>Name</th>
@@ -317,11 +316,10 @@ export default function MatchSummaryModal() {
                         <th className="px-1 py-2 border-r border-gray-200 bg-indigo-50" rowSpan={2}>Ace</th><th className="px-1 py-2 border-r border-gray-200 bg-indigo-50 text-red-600" rowSpan={2}>Err</th><th className="px-1 py-2 border-r border-gray-400 bg-indigo-50 text-gray-500" rowSpan={2}>Tot</th>
                         <th className="px-1 py-2 border-r border-gray-200" rowSpan={2}>Dig</th><th className="px-1 py-2 border-r border-gray-200 text-red-600" rowSpan={2}>Err</th><th className="px-1 py-2 border-r border-gray-300 text-gray-400" rowSpan={2}>Tot</th>
                         <th className="px-1 py-2 border-r border-gray-300 bg-gray-50" rowSpan={2}>Ast</th>
-                        {/* ✅ CONDITIONAL HEADER */}
                         <th className="px-1 py-2 border-r border-gray-200 bg-orange-50" colSpan={3}>Recep / Set</th>
                       </tr>
-                      {/* Sub-Header for Rec/Set */}
                       <tr className="bg-gray-50 text-gray-600 border-b border-gray-300 font-bold uppercase text-[9px]">
+                         <th colSpan={18}></th>
                          <th className="px-1 py-1 border-r border-gray-200 bg-orange-50/50">Exc</th>
                          <th className="px-1 py-1 border-r border-gray-200 bg-orange-50/50 text-red-600">Err</th>
                          <th className="px-1 py-1 bg-orange-50/50 text-gray-500">Tot</th>
@@ -332,8 +330,6 @@ export default function MatchSummaryModal() {
                           const atkEff = calcEff(stats.spikes.won, stats.spikes.error, stats.spikes.total);
                           const killPct = stats.spikes.total > 0 ? ((stats.spikes.won / stats.spikes.total) * 100).toFixed(0) + "%" : "-";
                           const blkPerSet = setsPlayed > 0 ? (stats.blocks.won / setsPlayed).toFixed(2) : "-";
-                          
-                          // ✅ CHECK SETTER
                           const isSetter = bucketFromPosition(player.position) === "S";
 
                           return (
@@ -349,7 +345,7 @@ export default function MatchSummaryModal() {
                               <td className="px-1 py-2.5 border-r border-gray-100 text-green-600">{stats.dig.exc || "-"}</td><td className="px-1 py-2.5 border-r border-gray-100 text-red-600">{stats.dig.error || "-"}</td><td className="px-1 py-2.5 border-r border-gray-300 text-gray-400 text-[11px]">{stats.dig.total || "-"}</td>
                               <td className="px-1 py-2.5 border-r border-gray-300 text-gray-600">{stats.set.running || "-"}</td>
                               
-                              {/* ✅ CONDITIONAL RENDERING: SETS vs RECEIVES */}
+                              {/* ✅ CONDITIONAL RENDERING FOR SETTERS */}
                               {isSetter ? (
                                 <>
                                   <td className="px-1 py-2.5 border-r border-gray-100 text-green-600 font-bold bg-gray-50/30">{stats.set.exc || "-"}</td>
@@ -374,7 +370,6 @@ export default function MatchSummaryModal() {
                         <td className="px-1 text-indigo-700">{currentTotal.serves.ace}</td><td className="px-1 text-red-500">{currentTotal.serves.error}</td><td className="px-1 text-gray-500 border-r border-gray-300">{currentTotal.serves.total}</td>
                         <td className="px-1 text-green-600">{currentTotal.dig.exc}</td><td className="px-1 text-red-500">{currentTotal.dig.error}</td><td className="px-1 text-gray-500 border-r border-gray-300">{currentTotal.dig.total}</td>
                         <td className="px-1 border-r border-gray-300">{currentTotal.set.running}</td>
-                        {/* TEAM TOTAL IS RECEPTION */}
                         <td className="px-1 text-green-600">{currentTotal.receive.exc}</td><td className="px-1 text-red-500">{currentTotal.receive.error}</td><td className="px-1 text-gray-500">{currentTotal.receive.total}</td>
                       </tr>
                     </tbody>
@@ -402,7 +397,7 @@ export default function MatchSummaryModal() {
               </div>
 
               <div className="grid grid-cols-1 xl:grid-cols-[1.5fr_1fr] gap-6">
-                 {/* ✅ PLAYER OF THE GAME - DETAILED */}
+                 {/* ✅ PLAYER OF THE GAME - CONDITIONAL STATS */}
                  {rankingsData.pog && pogStatsRow ? (
                     <div className="rounded-xl bg-gradient-to-br from-yellow-50 to-white border border-yellow-200 p-6 shadow-sm">
                        <div className="flex justify-between items-start mb-6">
@@ -423,31 +418,80 @@ export default function MatchSummaryModal() {
                            </div>
                        </div>
 
-                       {/* STATS TABLE */}
+                       {/* CONDITIONAL STATS TABLE BASED ON POG ROLE */}
                        <div className="bg-white/50 rounded-lg border border-yellow-100 overflow-hidden">
                            <table className="w-full text-center text-sm">
-                               <thead className="bg-yellow-100/50 text-gray-600 font-bold uppercase text-[10px]">
-                                   <tr>
-                                       <th className="p-2 border-r border-yellow-200">Points</th>
-                                       <th className="p-2 border-r border-yellow-200">Attack</th>
-                                       <th className="p-2 border-r border-yellow-200">Blocks</th>
-                                       <th className="p-2 border-r border-yellow-200">Ace</th>
-                                       <th className="p-2 border-r border-yellow-200">Receives</th>
-                                       <th className="p-2 border-r border-yellow-200">Digs</th>
-                                       <th className="p-2">Sets</th>
-                                   </tr>
-                               </thead>
-                               <tbody>
-                                   <tr className="font-black text-gray-800 text-lg">
-                                       <td className="p-3 border-r border-yellow-100">{pogStatsRow.stats.points}</td>
-                                       <td className="p-3 border-r border-yellow-100">{pogStatsRow.stats.spikes.won}</td>
-                                       <td className="p-3 border-r border-yellow-100">{pogStatsRow.stats.blocks.won}</td>
-                                       <td className="p-3 border-r border-yellow-100">{pogStatsRow.stats.serves.ace}</td>
-                                       <td className="p-3 border-r border-yellow-100">{pogStatsRow.stats.receive.exc}</td>
-                                       <td className="p-3 border-r border-yellow-100">{pogStatsRow.stats.dig.exc}</td>
-                                       <td className="p-3">{pogStatsRow.stats.set.running}</td>
-                                   </tr>
-                               </tbody>
+                               {/* 1. LIBEROS */}
+                               {bucketFromPosition(rankingsData.pog.position) === "L" ? (
+                                   <>
+                                     <thead className="bg-yellow-100/50 text-gray-600 font-bold uppercase text-[10px]">
+                                         <tr>
+                                             <th className="p-2 border-r border-yellow-200">Rec Eff %</th>
+                                             <th className="p-2 border-r border-yellow-200">Dig Eff %</th>
+                                             <th className="p-2 border-r border-yellow-200">Exc Rec</th>
+                                             <th className="p-2">Exc Digs</th>
+                                         </tr>
+                                     </thead>
+                                     <tbody>
+                                         <tr className="font-black text-gray-800 text-lg">
+                                             <td className="p-3 border-r border-yellow-100">{calcEff(pogStatsRow.stats.receive.exc, pogStatsRow.stats.receive.error, pogStatsRow.stats.receive.total)}</td>
+                                             <td className="p-3 border-r border-yellow-100">{calcEff(pogStatsRow.stats.dig.exc, pogStatsRow.stats.dig.error, pogStatsRow.stats.dig.total)}</td>
+                                             <td className="p-3 border-r border-yellow-100">{pogStatsRow.stats.receive.exc}</td>
+                                             <td className="p-3">{pogStatsRow.stats.dig.exc}</td>
+                                         </tr>
+                                     </tbody>
+                                   </>
+                               ) : bucketFromPosition(rankingsData.pog.position) === "S" ? (
+                                   /* 2. SETTERS */
+                                   <>
+                                     <thead className="bg-yellow-100/50 text-gray-600 font-bold uppercase text-[10px]">
+                                         <tr>
+                                             <th className="p-2 border-r border-yellow-200">Exc Sets</th>
+                                             <th className="p-2 border-r border-yellow-200">Run Sets</th>
+                                             <th className="p-2 border-r border-yellow-200">Points</th>
+                                             <th className="p-2 border-r border-yellow-200">Attack</th>
+                                             <th className="p-2 border-r border-yellow-200">Blocks</th>
+                                             <th className="p-2 border-r border-yellow-200">Ace</th>
+                                             <th className="p-2">Digs</th>
+                                         </tr>
+                                     </thead>
+                                     <tbody>
+                                         <tr className="font-black text-gray-800 text-lg">
+                                             <td className="p-3 border-r border-yellow-100">{pogStatsRow.stats.set.exc}</td>
+                                             <td className="p-3 border-r border-yellow-100">{pogStatsRow.stats.set.running}</td>
+                                             <td className="p-3 border-r border-yellow-100">{pogStatsRow.stats.points}</td>
+                                             <td className="p-3 border-r border-yellow-100">{pogStatsRow.stats.spikes.won}</td>
+                                             <td className="p-3 border-r border-yellow-100">{pogStatsRow.stats.blocks.won}</td>
+                                             <td className="p-3 border-r border-yellow-100">{pogStatsRow.stats.serves.ace}</td>
+                                             <td className="p-3">{pogStatsRow.stats.dig.exc}</td>
+                                         </tr>
+                                     </tbody>
+                                   </>
+                               ) : (
+                                   /* 3. WINGERS & MIDDLES (DEFAULT) */
+                                   <>
+                                     <thead className="bg-yellow-100/50 text-gray-600 font-bold uppercase text-[10px]">
+                                         <tr>
+                                             <th className="p-2 border-r border-yellow-200">Points</th>
+                                             <th className="p-2 border-r border-yellow-200">Attack</th>
+                                             <th className="p-2 border-r border-yellow-200">Blocks</th>
+                                             <th className="p-2 border-r border-yellow-200">Ace</th>
+                                             <th className="p-2 border-r border-yellow-200">Receives</th>
+                                             <th className="p-2">Digs</th>
+                                         </tr>
+                                     </thead>
+                                     <tbody>
+                                         <tr className="font-black text-gray-800 text-lg">
+                                             <td className="p-3 border-r border-yellow-100">{pogStatsRow.stats.points}</td>
+                                             <td className="p-3 border-r border-yellow-100">{pogStatsRow.stats.spikes.won}</td>
+                                             <td className="p-3 border-r border-yellow-100">{pogStatsRow.stats.blocks.won}</td>
+                                             <td className="p-3 border-r border-yellow-100">{pogStatsRow.stats.serves.ace}</td>
+                                             <td className="p-3 border-r border-yellow-100">{pogStatsRow.stats.receive.exc}</td>
+                                             <td className="p-3">{pogStatsRow.stats.dig.exc}</td>
+                                         </tr>
+                                     </tbody>
+                                   </>
+                               )}
                            </table>
                        </div>
                     </div>
@@ -508,9 +552,7 @@ export default function MatchSummaryModal() {
                                 <tr key={i} className="hover:bg-gray-50 transition-colors">
                                     <td className="p-3 text-left font-bold text-gray-900">#{r.player.jerseyNumber} {r.player.name}</td>
                                     <td className="p-3 text-[10px] font-bold text-gray-400 bg-gray-50">{bucketFromPosition(r.player.position)}</td>
-                                    {/* ✅ UPDATED: PTS (Blue Text) */}
                                     <td className="p-3 font-black bg-yellow-50 border-l border-r border-gray-100 text-blue-700 text-base">{r.stats.points}</td>
-                                    {/* ✅ UPDATED: ATK KILL (Blue Text) */}
                                     <td className="p-3 font-bold text-blue-700">{r.stats.spikes.won}</td><td className="p-3 text-red-500 font-medium">{r.stats.spikes.error}</td><td className="p-3 text-gray-400">{r.stats.spikes.total}</td>
                                     <td className="p-3 border-l border-gray-100 font-bold text-green-700">{r.stats.blocks.won}</td><td className="p-3 text-red-500 font-medium">{r.stats.blocks.error}</td>
                                     <td className="p-3 border-l border-gray-100 font-bold text-indigo-700">{r.stats.serves.ace}</td><td className="p-3 text-red-500 font-medium">{r.stats.serves.error}</td>
@@ -542,9 +584,7 @@ export default function MatchSummaryModal() {
                                             <td className="p-3 text-left font-bold text-gray-900">#{r.player.jerseyNumber} {r.player.name}</td>
                                             <td className="p-3 font-bold text-green-600 bg-gray-50">{r.stats.set.exc}</td>
                                             <td className="p-3 font-bold text-blue-600 bg-gray-50">{r.stats.set.running}</td>
-                                            {/* ✅ FIXED: Added text-blue-700 to match user request for visible/colored PTS */}
                                             <td className="p-3 font-black bg-yellow-50 border-l border-gray-100 text-blue-700 text-base">{r.stats.points}</td>
-                                            {/* ✅ FIXED: Added text-blue-700 to match user request for colored ATK (consistent with other roles) */}
                                             <td className="p-3 text-blue-700 font-bold">{r.stats.spikes.won}</td>
                                             <td className="p-3 text-gray-600">{r.stats.blocks.won}</td>
                                             <td className="p-3 text-gray-600">{r.stats.serves.ace}</td>

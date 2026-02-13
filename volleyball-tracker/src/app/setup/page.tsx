@@ -24,6 +24,7 @@ function normalizeImportedPosition(pos: unknown): Position | null {
 export default function SetupPage() {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const targetTeamRef = useRef<TeamId | null>(null);
 
   const players = useMatchStore((s) => s.players);
   const addPlayer = useMatchStore((s) => s.addPlayer);
@@ -64,16 +65,32 @@ export default function SetupPage() {
     );
   }
 
+  function handleImportClick(teamId: TeamId) {
+    targetTeamRef.current = teamId;
+    fileInputRef.current?.click();
+  }
+
   /* ------------------ JSON EXPORT ------------------ */
-  function exportJSON() {
-    const blob = new Blob([JSON.stringify(players, null, 2)], {
+  function exportJSON(teamId?: TeamId) {
+    // ✅ Filter by team if teamId is provided, otherwise export all
+    const dataToExport = teamId 
+      ? players.filter((p) => p.teamId === teamId)
+      : players;
+
+    if (dataToExport.length === 0) {
+        alert("No players to export.");
+        return;
+    }
+
+    const blob = new Blob([JSON.stringify(dataToExport, null, 2)], {
       type: "application/json",
     });
 
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "volleyball-roster.json";
+    // ✅ Dynamic filename
+    a.download = teamId ? `roster-team-${teamId}.json` : "roster-full.json";
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -91,49 +108,72 @@ export default function SetupPage() {
           return;
         }
 
-        const next: Player[] = [];
+        const targetTeam = targetTeamRef.current;
+        if (!targetTeam) return;
+
+        const newPlayers: Player[] = [];
 
         for (const raw of parsed) {
-          const id = String(raw?.id ?? "");
-          const teamId = raw?.teamId;
+          // We intentionally regenerate ID to allow importing the same file to both teams
+          const id = crypto.randomUUID(); 
           const name = String(raw?.name ?? "");
           const jerseyNumber = Number(raw?.jerseyNumber ?? NaN);
           const pos = normalizeImportedPosition(raw?.position);
 
-          if (!id || (teamId !== "A" && teamId !== "B") || !Number.isFinite(jerseyNumber) || !pos) {
+          if (!Number.isFinite(jerseyNumber) || !pos) {
             continue; // Skip invalid
           }
 
-          next.push({ id, teamId, name, jerseyNumber, position: pos });
+          // ✅ Force the player to the selected Team (A or B)
+          newPlayers.push({ id, teamId: targetTeam, name, jerseyNumber, position: pos });
         }
 
-        setPlayers(next);
+        // ✅ Keep the OTHER team, replace the TARGET team
+        const otherTeamPlayers = players.filter(p => p.teamId !== targetTeam);
+        setPlayers([...otherTeamPlayers, ...newPlayers]);
+
       } catch {
         alert("Failed to parse JSON file.");
+      } finally {
+        targetTeamRef.current = null; // Reset
       }
     };
 
     reader.readAsText(file);
   }
 
-  // ✅ Button style constant to replace <style jsx>
-  const btnSecondary = "px-4 py-2 rounded-lg bg-white text-black shadow hover:shadow-md font-semibold border border-gray-200 transition-all";
+  // ✅ Button style constant
+  const btnSecondary = "px-3 py-2 rounded-lg bg-white text-black shadow hover:shadow-md font-semibold border border-gray-200 transition-all text-xs sm:text-sm";
 
   return (
     <main className="min-h-screen bg-[var(--background)] p-6">
       <div className="max-w-6xl mx-auto pb-20">
         {/* Top bar */}
-        <div className="flex items-center justify-between gap-3 mb-6">
+        <div className="flex flex-col md:flex-row items-center justify-between gap-4 mb-6">
           <h1 className="text-2xl font-extrabold text-black">Roster Setup</h1>
 
-          <div className="flex gap-2">
-            <button onClick={exportJSON} className={btnSecondary}>
-              Export JSON
-            </button>
+          <div className="flex flex-wrap gap-2 justify-center">
+            {/* ✅ SEPARATE EXPORT BUTTONS */}
+            <div className="flex gap-1">
+                <button onClick={() => exportJSON("A")} className={btnSecondary} title="Export Team A Roster">
+                ⬇️ Export A
+                </button>
+                <button onClick={() => exportJSON("B")} className={btnSecondary} title="Export Team B Roster">
+                ⬇️ Export B
+                </button>
+            </div>
 
-            <button onClick={() => fileInputRef.current?.click()} className={btnSecondary}>
-              Import JSON
-            </button>
+            <div className="w-px h-8 bg-gray-300 mx-1 hidden sm:block"></div>
+
+            {/* ✅ SEPARATE IMPORT BUTTONS */}
+            <div className="flex gap-1">
+                <button onClick={() => handleImportClick("A")} className={btnSecondary} title="Import Roster into Team A">
+                ⬆️ Import A
+                </button>
+                <button onClick={() => handleImportClick("B")} className={btnSecondary} title="Import Roster into Team B">
+                ⬆️ Import B
+                </button>
+            </div>
 
             <input
               ref={fileInputRef}
@@ -147,7 +187,9 @@ export default function SetupPage() {
               }}
             />
 
-            <button onClick={() => router.push("/")} className={btnSecondary}>
+            <div className="w-px h-8 bg-gray-300 mx-1 hidden sm:block"></div>
+
+            <button onClick={() => router.push("/")} className={`${btnSecondary} bg-gray-100`}>
               Back to Court
             </button>
           </div>
@@ -238,33 +280,41 @@ function LiberoAutoSubCard({
   title: string;
   teamId: TeamId;
   players: Player[];
-  config: { enabled: boolean; liberoId: string | null; mbIds: string[] } | null;
+  config: { enabled: boolean; liberoId: string | null; replacementIds: string[] } | null;
   setConfig: (
     teamId: TeamId,
-    cfg: Partial<{ enabled: boolean; liberoId: string | null; mbIds: string[] }>
+    cfg: Partial<{ enabled: boolean; liberoId: string | null; replacementIds: string[] }>
   ) => void;
 }) {
   const liberoOptions = players.filter((p) => String(p.position).toUpperCase() === "L" || String(p.position).toUpperCase() === "LIBERO");
-  const mbOptions = players.filter((p) => String(p.position).toUpperCase() === "MB" || String(p.position).toUpperCase() === "MIDDLE");
+  
+  const replacementOptions = players.filter((p) => {
+      const pos = String(p.position).toUpperCase();
+      return ["MB", "MIDDLE", "OH", "OUTSIDE", "WS", "OPP", "OPPOSITE", "RIGHT_SIDE"].some(valid => pos.includes(valid));
+  });
 
   const enabled = config?.enabled ?? false;
-  const liberoId = config?.liberoId ?? null;
-  const mbIds = Array.isArray(config?.mbIds) ? config!.mbIds : [];
+  
+  // ✅ FIX: Verify Libero Exists
+  const rawLiberoId = config?.liberoId ?? null;
+  const liberoId = players.some(p => p.id === rawLiberoId) ? rawLiberoId : null;
 
-  function toggleMb(id: string) {
-    const current = [...mbIds];
+  // ✅ FIX: Filter out IDs that do not exist in the current player list (Ghost Players)
+  const rawReplacementIds = Array.isArray(config?.replacementIds) ? config!.replacementIds : [];
+  const replacementIds = rawReplacementIds.filter(id => players.some(p => p.id === id));
+
+  function toggleReplacement(id: string) {
+    const current = [...replacementIds];
     const exists = current.includes(id);
 
     let next: string[];
     if (exists) {
-      // ✅ Remove logic
       next = current.filter((x) => x !== id);
     } else {
-      // ✅ Add logic (max 2)
       if (current.length >= 2) return;
       next = [...current, id];
     }
-    setConfig(teamId, { mbIds: next });
+    setConfig(teamId, { replacementIds: next });
   }
 
   return (
@@ -307,18 +357,18 @@ function LiberoAutoSubCard({
         </div>
 
         <div>
-          <div className="text-xs font-bold text-black/60 mb-2">Choose 2 Middle Blockers</div>
+          <div className="text-xs font-bold text-black/60 mb-2">Choose 2 Players to Rotate (MB/OH/OPP)</div>
 
-          {mbOptions.length === 0 ? (
+          {replacementOptions.length === 0 ? (
             <div className="mt-1 text-xs text-amber-700 font-semibold">
-              Add at least two players with position <b>MB</b>.
+              Add players with position <b>MB, OH, or OPP</b>.
             </div>
           ) : (
             <div className="flex flex-col gap-2">
-              {mbOptions.map((p) => {
-                const checked = mbIds.includes(p.id);
-                // ✅ Disable ONLY if not checked AND we are full (2/2)
-                const disabled = !checked && mbIds.length >= 2;
+              {replacementOptions.map((p) => {
+                const checked = replacementIds.includes(p.id);
+                // Disable ONLY if not checked AND we are full (2/2)
+                const disabled = !checked && replacementIds.length >= 2;
 
                 return (
                   <label
@@ -333,13 +383,13 @@ function LiberoAutoSubCard({
                       type="checkbox"
                       checked={checked}
                       disabled={disabled}
-                      onChange={() => toggleMb(p.id)}
+                      onChange={() => toggleReplacement(p.id)}
                       className="w-4 h-4 text-pink-600 rounded focus:ring-pink-500"
                     />
                     <div className="flex-1 text-sm font-semibold text-black truncate">
                       #{p.jerseyNumber} {p.name || "(No name)"}
                     </div>
-                    <div className="text-xs font-extrabold text-black/60">MB</div>
+                    <div className="text-xs font-extrabold text-black/60">{p.position}</div>
                   </label>
                 );
               })}
@@ -348,8 +398,8 @@ function LiberoAutoSubCard({
 
           <div className="mt-2 text-xs text-black/60 font-semibold">
             Selected:{" "}
-            <b className={mbIds.length === 2 ? "text-green-600" : "text-amber-700"}>
-              {mbIds.length}/2
+            <b className={replacementIds.length === 2 ? "text-green-600" : "text-amber-700"}>
+              {replacementIds.length}/2
             </b>
           </div>
         </div>

@@ -92,8 +92,12 @@ function CourtSlot({ teamId, slot }: { teamId: TeamId; slot: RotationSlot }) {
   const player = players.find((p) => p.id === playerId) || null;
 
   const liberoSwap = teamId === "A" ? useMatchStore((s) => s.liberoSwapA) : useMatchStore((s) => s.liberoSwapB);
+  
+  // ✅ FIX: Updated logic to check `replacedPlayerId` instead of `replacedMbId`
   const isLiberoAutoSub = !!playerId && liberoSwap.active && liberoSwap.slot === slot && liberoSwap.liberoId === playerId;
-  const replacedMB = isLiberoAutoSub && liberoSwap.replacedMbId ? players.find((p) => p.id === liberoSwap.replacedMbId) ?? null : null;
+  const replacedPlayer = isLiberoAutoSub && liberoSwap.replacedPlayerId 
+    ? players.find((p) => p.id === liberoSwap.replacedPlayerId) ?? null 
+    : null;
 
   const dropId = `${teamId}-${slot}`;
   const { setNodeRef, isOver } = useDroppable({
@@ -164,9 +168,9 @@ function CourtSlot({ teamId, slot }: { teamId: TeamId; slot: RotationSlot }) {
             </div>
 
             {/* Sub Info */}
-            {isLiberoAutoSub && replacedMB && (
+            {isLiberoAutoSub && replacedPlayer && (
               <div className="hidden xl:block text-[10px] font-bold text-gray-500 truncate mt-1 bg-white/50 px-1.5 py-0.5 rounded">
-                Sub #{replacedMB.jerseyNumber}
+                Sub #{replacedPlayer.jerseyNumber}
               </div>
             )}
           </>

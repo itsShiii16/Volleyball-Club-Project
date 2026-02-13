@@ -53,11 +53,12 @@ type ToastType = "info" | "warn" | "error";
 export type ToastState = { id: string; message: string; type: ToastType; };
 const makeToast = (message: string, type: ToastType = "warn"): ToastState => ({ id: crypto.randomUUID(), message, type });
 
-type LiberoConfig = { enabled: boolean; liberoId: string | null; mbIds: string[]; };
-type LiberoSwap = { active: boolean; slot: RotationSlot | null; liberoId: string | null; replacedMbId: string | null; };
+// ✅ UPDATED CONFIG: Renamed mbIds to replacementIds to support OH/OPP
+type LiberoConfig = { enabled: boolean; liberoId: string | null; replacementIds: string[]; };
+type LiberoSwap = { active: boolean; slot: RotationSlot | null; liberoId: string | null; replacedPlayerId: string | null; };
 
-const defaultLiberoConfig = (): LiberoConfig => ({ enabled: false, liberoId: null, mbIds: [] });
-const defaultLiberoSwap = (): LiberoSwap => ({ active: false, slot: null, liberoId: null, replacedMbId: null });
+const defaultLiberoConfig = (): LiberoConfig => ({ enabled: false, liberoId: null, replacementIds: [] });
+const defaultLiberoSwap = (): LiberoSwap => ({ active: false, slot: null, liberoId: null, replacedPlayerId: null });
 
 const mapSlotForward = (slot: RotationSlot): RotationSlot => {
   const idx = ROTATION_ORDER.indexOf(slot);
@@ -73,20 +74,22 @@ function applyLiberoAutomation(params: { teamId: TeamId; court: CourtState; play
   const { court, players, config, teamId } = params;
   let nextCourt: CourtState = { ...court };
   let nextSwap: LiberoSwap = { ...params.swap };
-  const cfgMbIds = Array.isArray(config.mbIds) ? config.mbIds : [];
+  const cfgTargetIds = Array.isArray(config.replacementIds) ? config.replacementIds : [];
 
-  if (!config.enabled || !config.liberoId || cfgMbIds.length === 0) {
+  if (!config.enabled || !config.liberoId || cfgTargetIds.length === 0) {
     if (nextSwap.active) nextSwap = defaultLiberoSwap();
     return { court: nextCourt, swap: nextSwap };
   }
 
-  const mbIds = Array.from(new Set(cfgMbIds.filter(Boolean))).slice(0, 2);
+  // ✅ ENFORCE MAX 2 SELECTION LIMIT
+  const targetIds = Array.from(new Set(cfgTargetIds.filter(Boolean))).slice(0, 2);
+  
   const libero = players.find((p) => p.id === config.liberoId) || null;
-  const mbPlayers = mbIds.map((id) => players.find((p) => p.id === id) || null).filter(Boolean) as Player[];
+  const targetPlayers = targetIds.map((id) => players.find((p) => p.id === id) || null).filter(Boolean) as Player[];
 
   if (!libero) { if (nextSwap.active) nextSwap = defaultLiberoSwap(); return { court: nextCourt, swap: nextSwap, toast: makeToast("Libero config invalid: Libero not found.", "warn") }; }
   if (!isLiberoPlayer(libero)) return { court: nextCourt, swap: defaultLiberoSwap(), toast: makeToast("Selected Libero is not a Libero position.", "warn") };
-  if (mbPlayers.length === 0) { if (nextSwap.active) nextSwap = defaultLiberoSwap(); return { court: nextCourt, swap: nextSwap, toast: makeToast("Libero config invalid: MB(s) not found.", "warn") }; }
+  if (targetPlayers.length === 0) { if (nextSwap.active) nextSwap = defaultLiberoSwap(); return { court: nextCourt, swap: nextSwap, toast: makeToast("Libero config invalid: No replacements found.", "warn") }; }
 
   const findSlotOf = (pid: string) => {
     const entries = Object.entries(nextCourt) as Array<[string, string | null]>;
@@ -98,42 +101,53 @@ function applyLiberoAutomation(params: { teamId: TeamId; court: CourtState; play
     nextSwap.slot = params.rotationMapping === "FORWARD" ? mapSlotForward(nextSwap.slot) : mapSlotBackward(nextSwap.slot);
   }
 
-  if (nextSwap.active && nextSwap.slot && nextSwap.liberoId && nextSwap.replacedMbId) {
+  // 1. Check if Libero needs to come OUT (Rotating to Front)
+  if (nextSwap.active && nextSwap.slot && nextSwap.liberoId && nextSwap.replacedPlayerId) {
     if (isFrontRowSlot(nextSwap.slot)) {
-      if (nextCourt[nextSwap.slot] === nextSwap.liberoId) nextCourt[nextSwap.slot] = nextSwap.replacedMbId;
-      return { court: nextCourt, swap: defaultLiberoSwap(), toast: makeToast(`Auto-sub: ${teamId} Libero out (MB returns to front row).`, "info") };
+      if (nextCourt[nextSwap.slot] === nextSwap.liberoId) nextCourt[nextSwap.slot] = nextSwap.replacedPlayerId;
+      return { court: nextCourt, swap: defaultLiberoSwap(), toast: makeToast(`Auto-sub: ${teamId} Libero out (Player returns to front row).`, "info") };
     }
+    // Consistency check
     if (nextCourt[nextSwap.slot] !== nextSwap.liberoId) {
-      if (nextCourt[nextSwap.slot] === nextSwap.replacedMbId) nextCourt[nextSwap.slot] = nextSwap.liberoId;
+      if (nextCourt[nextSwap.slot] === nextSwap.replacedPlayerId) nextCourt[nextSwap.slot] = nextSwap.liberoId;
       else nextSwap = defaultLiberoSwap();
     }
     if (hasIllegalLiberoFrontRow(nextCourt, players)) return { court, swap: defaultLiberoSwap(), toast: makeToast("Illegal state prevented: Libero in front row.", "error") };
     return { court: nextCourt, swap: nextSwap };
   }
 
+  // 2. Check if Libero needs to go IN (Target Rotating to Back)
   const liberoSlot = config.liberoId ? findSlotOf(config.liberoId) : null;
   if (!liberoSlot) {
-    let chosenMbId: string | null = null;
-    let chosenMbSlot: RotationSlot | null = null;
-    for (const mbId of mbIds) {
-      const mbSlot = findSlotOf(mbId);
-      if (mbSlot && isBackRowSlot(mbSlot)) { 
-         if (params.servingTeam === teamId && mbSlot === 1) continue; 
-         chosenMbId = mbId; chosenMbSlot = mbSlot; break; 
+    let chosenTargetId: string | null = null;
+    let chosenTargetSlot: RotationSlot | null = null;
+    
+    // Check all configured replacements (MB, OH, OPP)
+    for (const targetId of targetIds) {
+      const targetSlot = findSlotOf(targetId);
+      if (targetSlot && isBackRowSlot(targetSlot)) { 
+         // Don't swap if they are currently serving
+         if (params.servingTeam === teamId && targetSlot === 1) continue; 
+         chosenTargetId = targetId; chosenTargetSlot = targetSlot; break; 
       }
     }
-    if (chosenMbId && chosenMbSlot) {
-      nextCourt[chosenMbSlot] = config.liberoId;
-      const started: LiberoSwap = { active: true, slot: chosenMbSlot, liberoId: config.liberoId, replacedMbId: chosenMbId };
+
+    if (chosenTargetId && chosenTargetSlot) {
+      nextCourt[chosenTargetSlot] = config.liberoId;
+      const started: LiberoSwap = { active: true, slot: chosenTargetSlot, liberoId: config.liberoId, replacedPlayerId: chosenTargetId };
+      
       if (hasIllegalLiberoFrontRow(nextCourt, players)) return { court, swap: defaultLiberoSwap(), toast: makeToast("Illegal state prevented: Libero in front row.", "error") };
-      const mbP = players.find((p) => p.id === chosenMbId) || null;
-      return { court: nextCourt, swap: started, toast: makeToast(`Auto-sub: ${teamId} Libero in (replacing ${mbP ? `#${mbP.jerseyNumber}` : "MB"} in back row).`, "info") };
+      
+      const pOut = players.find((p) => p.id === chosenTargetId) || null;
+      return { court: nextCourt, swap: started, toast: makeToast(`Auto-sub: ${teamId} Libero in (replacing ${pOut ? `#${pOut.jerseyNumber}` : "Player"}).`, "info") };
     }
   }
+  
   if (hasIllegalLiberoFrontRow(nextCourt, players)) return { court, swap: defaultLiberoSwap(), toast: makeToast("Illegal state prevented: Libero in front row.", "error") };
   return { court: nextCourt, swap: nextSwap };
 }
 
+// ... [Keep RoleKey, StatKey, POG_MULTIPLIERS, etc. exactly the same] ...
 type RoleKey = "WINGERS" | "MIDDLE_BLOCKER" | "LIBERO" | "SETTER";
 type StatKey = "SERVE_ACE" | "SERVE_SUCCESS" | "SERVE_ERROR" | "RECEPTION_EXC" | "RECEPTION_ATT" | "RECEPTION_ERR" | "DIG_EXC" | "DIG_ATT" | "DIG_ERR" | "ATTACK_KILL" | "ATTACK_ATT" | "ATTACK_ERR" | "BLOCK_KILL" | "BLOCK_ERR" | "SET_EXC" | "SET_RUN" | "SET_ERR";
 
@@ -141,18 +155,7 @@ const POG_MULTIPLIERS: Record<RoleKey, Record<StatKey, number>> = {
   WINGERS: { SERVE_ACE: 2, SERVE_SUCCESS: 1, SERVE_ERROR: -2, RECEPTION_EXC: 2, RECEPTION_ATT: 1, RECEPTION_ERR: -2, DIG_EXC: 2, DIG_ATT: 1, DIG_ERR: -2, ATTACK_KILL: 2, ATTACK_ATT: 0, ATTACK_ERR: -2, BLOCK_KILL: 2, BLOCK_ERR: -2, SET_EXC: 0, SET_RUN: 0, SET_ERR: 0 },
   MIDDLE_BLOCKER: { SERVE_ACE: 2, SERVE_SUCCESS: 1, SERVE_ERROR: -2, RECEPTION_EXC: 0, RECEPTION_ATT: 0, RECEPTION_ERR: 0, DIG_EXC: 2, DIG_ATT: 1, DIG_ERR: -2, ATTACK_KILL: 4, ATTACK_ATT: 0, ATTACK_ERR: -4, BLOCK_KILL: 4, BLOCK_ERR: -4, SET_EXC: 0, SET_RUN: 0, SET_ERR: 0 },
   LIBERO: { SERVE_ACE: 0, SERVE_SUCCESS: 0, SERVE_ERROR: 0, RECEPTION_EXC: 3, RECEPTION_ATT: 1, RECEPTION_ERR: -2, DIG_EXC: 2, DIG_ATT: 1, DIG_ERR: -2, ATTACK_KILL: 0, ATTACK_ATT: 0, ATTACK_ERR: 0, BLOCK_KILL: 0, BLOCK_ERR: 0, SET_EXC: 0, SET_RUN: 2, SET_ERR: -2 },
-  
-  // ✅ UPDATED SETTER VALUES
-  SETTER: { 
-    SERVE_ACE: 2, SERVE_SUCCESS: 1, SERVE_ERROR: -2, 
-    RECEPTION_EXC: 0, RECEPTION_ATT: 0, RECEPTION_ERR: 0, 
-    DIG_EXC: 2, DIG_ATT: 1, DIG_ERR: -2, 
-    ATTACK_KILL: 1, ATTACK_ATT: 0, ATTACK_ERR: -2, 
-    BLOCK_KILL: 2, BLOCK_ERR: -2, 
-    SET_EXC: 2, 
-    SET_RUN: 0.5, 
-    SET_ERR: -2 
-  },
+  SETTER: { SERVE_ACE: 2, SERVE_SUCCESS: 1, SERVE_ERROR: -2, RECEPTION_EXC: 0, RECEPTION_ATT: 0, RECEPTION_ERR: 0, DIG_EXC: 2, DIG_ATT: 1, DIG_ERR: -2, ATTACK_KILL: 1, ATTACK_ATT: 0, ATTACK_ERR: -2, BLOCK_KILL: 2, BLOCK_ERR: -2, SET_EXC: 2, SET_RUN: 0.5, SET_ERR: -2 },
 };
 
 type PlayerSetStats = { counts: Record<StatKey, number>; pogPoints: number; };
@@ -263,14 +266,13 @@ type MatchStore = {
 export const useMatchStore = create<MatchStore>()(
   persist(
     (set, get) => {
-      // ... (standard logic)
       const isTeamOnLeft = (teamId: TeamId) => get().leftTeam === teamId;
       const getConfig = (state: MatchStore, teamId: TeamId) => teamId === "A" ? state.liberoConfigA : state.liberoConfigB;
       const getSwap = (state: MatchStore, teamId: TeamId) => teamId === "A" ? state.liberoSwapA : state.liberoSwapB;
       const setSwapPatch = (teamId: TeamId, swap: LiberoSwap) => teamId === "A" ? { liberoSwapA: swap } : { liberoSwapB: swap };
 
+      // ... (buildSavedSet & resetAfterSet same as before) ...
       const buildSavedSet = (params: any): SavedSet => {
-        // ... (saved set logic)
         const perPlayerCounts: Record<string, Record<StatKey, number>> = {};
         for (const ev of params.events) {
           const k = classifyForPog(ev.skillKey, ev.outcomeKey);
@@ -299,15 +301,20 @@ export const useMatchStore = create<MatchStore>()(
       };
 
       return {
-        // ... (initial state)
+        // ... (Initial State)
         players: [], courtA: emptyCourt(), courtB: emptyCourt(), leftTeam: "A", setLeftTeam: (teamId) => set({ leftTeam: teamId }), swapSides: () => set((state) => ({ leftTeam: state.leftTeam === "A" ? "B" : "A" })),
         selected: null, selectSlot: (teamId, slot, mode = "default") => set({ selected: { teamId, slot, mode } }), clearSelection: () => set({ selected: null }),
         toast: null, setToast: (message, type = "warn") => set({ toast: makeToast(message, type) }), clearToast: () => set({ toast: null }),
+        
+        // ✅ NEW: CONFIG UPDATE
         liberoConfigA: defaultLiberoConfig(), liberoConfigB: defaultLiberoConfig(),
         setLiberoConfig: (teamId, cfg) => set((state) => {
           const prevCfg = teamId === "A" ? state.liberoConfigA : state.liberoConfigB;
-          const next = { ...prevCfg, ...cfg, mbIds: cfg.mbIds !== undefined ? cfg.mbIds : prevCfg.mbIds };
-          next.mbIds = Array.from(new Set((next.mbIds ?? []).filter(Boolean))).slice(0, 2);
+          // Merge & Clean
+          const next = { ...prevCfg, ...cfg };
+          if (cfg.replacementIds !== undefined) {
+             next.replacementIds = Array.from(new Set(cfg.replacementIds.filter(Boolean))).slice(0, 2);
+          }
           return teamId === "A" ? { ...state, liberoConfigA: next } : { ...state, liberoConfigB: next };
         }),
         liberoSwapA: defaultLiberoSwap(), liberoSwapB: defaultLiberoSwap(), rallyCount: 0, rallyInProgress: false, serviceRunTeam: "A", serviceRunCount: 0,
@@ -333,7 +340,6 @@ export const useMatchStore = create<MatchStore>()(
 
         subsUsedA: 0, subsUsedB: 0, activeSubsA: {}, activeSubsB: {},
 
-        // ✅ REVISED SUBSTITUTE ACTION
         assignPlayerToSlot: (teamId, slot, playerId) => set((state) => {
           const isMidGame = state.events.length > 0 || state.scoreA > 0 || state.scoreB > 0;
           const key = teamId === "A" ? "courtA" : "courtB"; 
@@ -345,43 +351,30 @@ export const useMatchStore = create<MatchStore>()(
           let subsUsed = state[countKey];
           
           const currentPlayerId = court[slot];
-
-          // 1. Get Players for Logic
           const pIn = state.players.find(p => p.id === playerId);
           const pOut = state.players.find(p => p.id === currentPlayerId);
-
           const inIsLibero = isLiberoPlayer(pIn);
           const outIsLibero = isLiberoPlayer(pOut);
-
-          // 2. Determine Replacement Type
-          // - Libero <-> Regular is FREE (Libero Replacement)
-          // - Regular <-> Regular is SUB (Substitution)
-          // - Libero <-> Libero is SUB (Special User Rule)
           
           const isLiberoReplacement = (inIsLibero && !outIsLibero) || (!inIsLibero && outIsLibero);
           const isSubstitution = isMidGame && !isLiberoReplacement;
 
           if (!isMidGame) {
              court[slot] = playerId;
-             // Update Libero Config if a Libero was placed (so automation works)
              const currentConfig = teamId === "A" ? state.liberoConfigA : state.liberoConfigB;
              let newConfig = { ...currentConfig };
              if (inIsLibero) newConfig.liberoId = playerId;
-
              const nextState: any = { ...state, [key]: court };
              if (teamId === "A") nextState.liberoConfigA = newConfig;
              else nextState.liberoConfigB = newConfig;
              return nextState;
           }
 
-          // 4. MID-GAME SUBSTITUTION LOGIC
           if (isSubstitution) {
              if (subsUsed >= 6) {
                  return { ...state, toast: makeToast("Substitution limit (6) reached for this set.", "error") };
              }
-
              if (currentPlayerId) {
-                 // Is outgoing player a SUB?
                  if (activeSubs[currentPlayerId]) {
                      const originalStarter = activeSubs[currentPlayerId];
                      if (playerId !== originalStarter) {
@@ -395,23 +388,18 @@ export const useMatchStore = create<MatchStore>()(
                      activeSubs[playerId] = currentPlayerId;
                  }
              }
-             
              subsUsed++;
           }
 
-          // 5. Execute Swap
           court[slot] = playerId;
           
-          // 6. Update Libero Config if a Libero was subbed in
           const currentConfig = teamId === "A" ? state.liberoConfigA : state.liberoConfigB;
           let newConfig = { ...currentConfig };
-          if (inIsLibero) {
-              newConfig.liberoId = playerId;
-          }
+          if (inIsLibero) newConfig.liberoId = playerId;
 
           const applied = applyLiberoAutomation({ 
               teamId, court, players: state.players, 
-              config: newConfig, // Use updated config
+              config: newConfig,
               swap: getSwap(state, teamId), servingTeam: state.servingTeam 
           });
           
@@ -428,11 +416,9 @@ export const useMatchStore = create<MatchStore>()(
           
           if (isSubstitution) {
               nextState.toast = makeToast(`Substitution recorded. (${subsUsed}/6)`, "info");
-              // ✅ LOG SUBSTITUTION EVENT FOR UNDO
-              // We use "SUBSTITUTION" as the skill key. 
               const subEvent: InternalEvent = {
                 id: crypto.randomUUID(), ts: Date.now(), teamId, playerId, slot, 
-                skill: "SUBSTITUTION" as any, outcome: "None" as any, // Cast to any to bypass strict type check for now
+                skill: "SUBSTITUTION" as any, outcome: "None" as any, 
                 prevScoreA: state.scoreA, prevScoreB: state.scoreB, prevServingTeam: state.servingTeam, 
                 prevCourtA: state.courtA, prevCourtB: state.courtB,
                 prevLiberoSwapA: state.liberoSwapA, prevLiberoSwapB: state.liberoSwapB, 
@@ -446,10 +432,10 @@ export const useMatchStore = create<MatchStore>()(
           }
           
           if (applied.toast) nextState.toast = applied.toast;
-
           return nextState;
         }),
 
+        // ... (remaining methods: substituteInSlot, clearSlot, etc. kept same) ...
         substituteInSlot: (teamId, slot, newPlayerId) => get().assignPlayerToSlot(teamId, slot, newPlayerId),
         clearSlot: (teamId, slot) => set((state) => { const key = teamId === "A" ? "courtA" : "courtB"; const court = { ...state[key] }; court[slot] = null; return { ...state, [key]: court }; }),
         getOnCourtPlayerIds: (teamId) => { const state = get(); const court = teamId === "A" ? state.courtA : state.courtB; return Object.values(court).filter(Boolean) as string[]; },
@@ -530,22 +516,18 @@ export const useMatchStore = create<MatchStore>()(
             const last = state.events[0];
             const scoreChanged = (state.scoreA !== last.prevScoreA || state.scoreB !== last.prevScoreB);
 
-            // ✅ Handle SUB UNDO
             if (last.skillKey === "SUBSTITUTION") {
                 const [_, ...rest] = state.events;
                 return { 
                     ...state, events: rest, 
-                    // Restore PREVIOUS sub counts and active subs map
                     subsUsedA: last.prevSubsUsedA, subsUsedB: last.prevSubsUsedB,
                     activeSubsA: last.prevActiveSubsA, activeSubsB: last.prevActiveSubsB,
-                    // Restore court state (undo the player swap)
                     courtA: last.prevCourtA, courtB: last.prevCourtB,
                     toast: makeToast("Undid Substitution.", "info") 
                 };
             }
 
             if (scoreChanged) {
-                // ... (Rally Undo Logic)
                 const targetA = last.prevScoreA;
                 const targetB = last.prevScoreB;
                 let count = 0;
@@ -744,17 +726,34 @@ export const useMatchStore = create<MatchStore>()(
     },
     {
       name: "vb-match-store",
-      version: 21,
+      version: 22, // ✅ BUMP VERSION
       migrate: (persisted: any) => {
         const state = persisted?.state ?? persisted ?? {};
         const players = Array.isArray(state.players) ? state.players : [];
         const validPlayerIds = new Set(players.map((p: any) => p.id));
-        const cleanMbIds = (ids: any) => (Array.isArray(ids) ? ids.filter((id: string) => validPlayerIds.has(id)) : []);
+        
+        // ✅ NEW: cleanReplacementIds handles the new field
+        const cleanReplacementIds = (ids: any) => (Array.isArray(ids) ? ids.filter((id: string) => validPlayerIds.has(id)) : []);
         const cleanLiberoId = (id: any) => (validPlayerIds.has(id) ? id : null);
+
+        // ✅ NEW: Migrate mbIds -> replacementIds
+        const migrateConfig = (oldCfg: any) => {
+            const base = { ...defaultLiberoConfig(), ...(oldCfg ?? {}) };
+            // If old mbIds exists but no replacementIds, migrate it
+            if (base.mbIds && (!base.replacementIds || base.replacementIds.length === 0)) {
+                base.replacementIds = base.mbIds;
+            }
+            return {
+                ...base,
+                liberoId: cleanLiberoId(base.liberoId),
+                replacementIds: cleanReplacementIds(base.replacementIds)
+            };
+        };
+
         return {
           ...state,
-          liberoConfigA: { ...defaultLiberoConfig(), ...(state.liberoConfigA ?? {}), liberoId: cleanLiberoId(state.liberoConfigA?.liberoId), mbIds: cleanMbIds(state.liberoConfigA?.mbIds) },
-          liberoConfigB: { ...defaultLiberoConfig(), ...(state.liberoConfigB ?? {}), liberoId: cleanLiberoId(state.liberoConfigB?.liberoId), mbIds: cleanMbIds(state.liberoConfigB?.mbIds) },
+          liberoConfigA: migrateConfig(state.liberoConfigA),
+          liberoConfigB: migrateConfig(state.liberoConfigB),
           setRules: { ...defaultSetRules(), ...(state.setRules ?? {}) },
           setNumber: typeof state.setNumber === "number" ? state.setNumber : 1,
           setsWonA: typeof state.setsWonA === "number" ? state.setsWonA : 0,
