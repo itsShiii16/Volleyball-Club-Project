@@ -176,9 +176,10 @@ export default function ScoresheetPanel() {
     const frontRow = isFrontRowSlot(slot);
     const libero = isLiberoPosition(player.position);
     
-    // Determine serving context for button generation
+    // ✅ FIX: Dynamic serving slot relative to court side
     const isServingTeam = (teamId === servingTeam);
-    const servingSlot = teamId === leftTeam ? 1 : 5;
+    const isLeftTeam = teamId === leftTeam;
+    const servingSlot = isLeftTeam ? 1 : 5;
     const isServingPlayer = isServingTeam && slot === servingSlot;
 
     let btns = buttonsForContext(player.position, { 
@@ -206,7 +207,6 @@ export default function ScoresheetPanel() {
           btns = [];
       }
     } else if (rallyState === "AWAIT_ERROR") {
-      // ✅ NEW: Strict context-aware error button
       const lastEvent = events.length > 0 ? events[0] : null;
       if (lastEvent && lastEvent.teamId !== teamId) {
           if (lastEvent.skill === "SPIKE" || lastEvent.skill === "ATTACK") {

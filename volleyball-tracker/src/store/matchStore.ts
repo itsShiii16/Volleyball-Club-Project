@@ -559,10 +559,14 @@ export const useMatchStore = create<MatchStore>()(
           if (skillKey.includes("SERVE")) {
             if (isLiberoPlayer(playerObj)) return { ...state, toast: makeToast("Illegal action: Libero cannot serve.", "error") };
             if (teamId !== state.servingTeam) return { ...state, toast: makeToast("Illegal action: Only the serving team may serve.", "error") };
-            const validServeSlot = teamId === "A" ? 1 : 5;
+            
+            // ✅ FIX: Dynamic Check - Left Team = Slot 1, Right Team = Slot 5
+            const isLeftTeam = state.leftTeam === teamId;
+            const validServeSlot = isLeftTeam ? 1 : 5; 
+
             if (Number(slot) !== validServeSlot) {
-              const slotLabel = teamId === "A" ? "BR (slot 1)" : "BL (slot 5)";
-              return { ...state, toast: makeToast(`Illegal action: Only player in ${slotLabel} may serve for Team ${teamId}.`, "error") };
+                const slotLabel = isLeftTeam ? "Back Right (1)" : "Back Left (5)";
+                return { ...state, toast: makeToast(`Illegal action: Player must be in ${slotLabel} to serve.`, "error") };
             }
           }
 
@@ -577,7 +581,7 @@ export const useMatchStore = create<MatchStore>()(
           if (isError) {
               pointWinner = opponentOf(teamId);
           } else {
-            // ✅ Only Clean Kill/Ace/Block awards point immediately
+            // Only Clean Kill/Ace/Block awards point immediately
             const isWin = (outcomeKey.includes("KILL") && !outcomeKey.includes("FORCED")) || 
                           (outcomeKey.includes("ACE") && !outcomeKey.includes("FORCED")) || 
                           outcomeKey.includes("POINT") || outcomeKey.includes("BLOCK_POINT");
@@ -605,13 +609,11 @@ export const useMatchStore = create<MatchStore>()(
               nextRallyState = "IN_RALLY";
           }
 
-          // ✅ NEW: Got Blocked Logic
           if (outcomeKey === "BLOCKED") {
              pointWinner = undefined; 
              nextRallyState = "AWAIT_BLOCK";
           }
 
-          // ✅ NEW: Forced Kill/Ace Logic (Wait for opponent error)
           if (outcomeKey === "ACE_FORCED" || outcomeKey === "KILL_FORCED") {
              pointWinner = undefined;
              nextRallyState = "AWAIT_ERROR";
@@ -850,7 +852,7 @@ export const useMatchStore = create<MatchStore>()(
     },
     {
       name: "vb-match-store",
-      version: 28, // ✅ BUMPED
+      version: 29, // ✅ BUMPED
       migrate: (persisted: any) => {
         const state = persisted?.state ?? persisted ?? {};
         const players = Array.isArray(state.players) ? state.players : [];

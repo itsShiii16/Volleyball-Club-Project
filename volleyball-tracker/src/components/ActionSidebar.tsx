@@ -56,7 +56,7 @@ function getOutcomeTheme(outcome: string) {
       badge: "bg-orange-100 text-orange-800 border-orange-200"
     };
   }
-  // PURPLE: Forced Errors (Kill/Ace via opponent error)
+  // PURPLE: Forced Errors
   if (u.includes("FORCED")) {
     return {
       btn: "bg-purple-50 border-purple-200 text-purple-900 hover:bg-purple-100 hover:border-purple-300",
@@ -95,7 +95,7 @@ function buttonsForContext(
     { skill: "DIG", outcome: "ERROR", label: "Error / Kill", short: "Err" },
   ];
 
-  // 3. Setting (VISIBLE ONLY FOR SETTERS)
+  // 3. Setting
   const setBtns: Btn[] = isSetter ? [
     { skill: "SET", outcome: "PERFECT", label: "Excellent", short: "Exc" },
     { skill: "SET", outcome: "SUCCESS", label: "Running", short: "Run" },
@@ -166,7 +166,10 @@ export default function ActionSidebar() {
     const libero = isLiberoPosition(player.position);
     const isSetter = isSetterPosition(player.position); 
     const isServingTeam = (teamId === servingTeam);
-    const servingSlot = teamId === leftTeam ? 1 : 5;
+    
+    // ✅ FIX: Dynamic serving slot relative to court side
+    const isLeftTeam = teamId === leftTeam;
+    const servingSlot = isLeftTeam ? 1 : 5;
     const isServingPlayer = isServingTeam && slot === servingSlot;
 
     let btns = buttonsForContext(player.position, { 
@@ -194,23 +197,16 @@ export default function ActionSidebar() {
           btns = [];
       }
     } else if (rallyState === "AWAIT_ERROR") {
-      // ✅ NEW: Strict context-aware error button
       const lastEvent = events.length > 0 ? events[0] : null;
       if (lastEvent && lastEvent.teamId !== teamId) {
-          // If previous was Spike/Attack -> Opponent must Dig Error
           if (lastEvent.skill === "SPIKE" || lastEvent.skill === "ATTACK") {
              btns = btns.filter(b => b.skill === "DIG" && b.outcome.includes("ERROR"));
-          } 
-          // If previous was Serve -> Opponent must Receive Error
-          else if (lastEvent.skill === "SERVE") {
+          } else if (lastEvent.skill === "SERVE") {
              btns = btns.filter(b => b.skill === "RECEIVE" && b.outcome.includes("ERROR"));
-          }
-          // Fallback just in case (Blocking tool, etc) -> Dig Error
-          else {
+          } else {
              btns = btns.filter(b => b.skill === "DIG" && b.outcome.includes("ERROR"));
           }
       } else {
-          // Same team: No actions
           btns = [];
       }
     } else if (rallyState === "IN_RALLY") {
