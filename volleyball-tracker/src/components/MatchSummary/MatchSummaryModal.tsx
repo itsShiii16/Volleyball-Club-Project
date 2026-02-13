@@ -306,17 +306,25 @@ export default function MatchSummaryModal() {
                         <th colSpan={3} className="p-1 border-r border-gray-700 bg-indigo-900">Serving</th>
                         <th colSpan={9} className="p-1 bg-gray-700">Defense & Transition</th>
                       </tr>
+                      {/* ✅ FIXED HEADER WITH ROWSPAN */}
                       <tr className="bg-gray-100 text-gray-800 border-b border-gray-300 font-bold uppercase text-[10px]">
-                        <th className="px-2 py-2 border-r border-gray-300 w-10 sticky left-0 bg-gray-200 z-10">#</th>
-                        <th className="px-2 py-2 border-r border-gray-300 text-left w-32 sticky left-10 bg-gray-200 z-10">Name</th>
-                        <th className="px-2 py-2 border-r border-gray-300 w-10 sticky left-40 bg-gray-200 z-10">Sets</th>
-                        <th className="px-2 py-2 border-r border-gray-400 w-12 bg-yellow-100 text-black">PTS</th>
-                        <th className="px-1 py-2 border-r border-gray-200 bg-blue-50">Kill</th><th className="px-1 py-2 border-r border-gray-200 bg-blue-50 text-red-600">Err</th><th className="px-1 py-2 border-r border-gray-300 bg-blue-50 text-gray-500">Tot</th><th className="px-1 py-2 border-r border-gray-300 bg-blue-100 w-10">Eff%</th><th className="px-1 py-2 border-r border-gray-400 bg-blue-100 w-10">Kil%</th>
-                        <th className="px-1 py-2 border-r border-gray-200 bg-green-50">Kill</th><th className="px-1 py-2 border-r border-gray-200 bg-green-50 text-red-600">Err</th><th className="px-1 py-2 border-r border-gray-400 bg-green-50 text-gray-400">/Set</th>
-                        <th className="px-1 py-2 border-r border-gray-200 bg-indigo-50">Ace</th><th className="px-1 py-2 border-r border-gray-200 bg-indigo-50 text-red-600">Err</th><th className="px-1 py-2 border-r border-gray-400 bg-indigo-50 text-gray-500">Tot</th>
-                        <th className="px-1 py-2 border-r border-gray-200">Dig</th><th className="px-1 py-2 border-r border-gray-200 text-red-600">Err</th><th className="px-1 py-2 border-r border-gray-300 text-gray-400">Tot</th>
-                        <th className="px-1 py-2 border-r border-gray-300 bg-gray-50">Ast</th>
-                        <th className="px-1 py-2 border-r border-gray-200 bg-orange-50">Exc</th><th className="px-1 py-2 border-r border-gray-200 bg-orange-50 text-red-600">Err</th><th className="px-1 py-2 bg-orange-50 text-gray-500">Tot</th>
+                        <th className="px-2 py-2 border-r border-gray-300 w-10 sticky left-0 bg-gray-200 z-10" rowSpan={2}>#</th>
+                        <th className="px-2 py-2 border-r border-gray-300 text-left w-32 sticky left-10 bg-gray-200 z-10" rowSpan={2}>Name</th>
+                        <th className="px-2 py-2 border-r border-gray-300 w-10 sticky left-40 bg-gray-200 z-10" rowSpan={2}>Sets</th>
+                        <th className="px-2 py-2 border-r border-gray-400 w-12 bg-yellow-100 text-black" rowSpan={2}>PTS</th>
+                        <th className="px-1 py-2 border-r border-gray-200 bg-blue-50" rowSpan={2}>Kill</th><th className="px-1 py-2 border-r border-gray-200 bg-blue-50 text-red-600" rowSpan={2}>Err</th><th className="px-1 py-2 border-r border-gray-300 bg-blue-50 text-gray-500" rowSpan={2}>Tot</th><th className="px-1 py-2 border-r border-gray-300 bg-blue-100 w-10" rowSpan={2}>Eff%</th><th className="px-1 py-2 border-r border-gray-400 bg-blue-100 w-10" rowSpan={2}>Kil%</th>
+                        <th className="px-1 py-2 border-r border-gray-200 bg-green-50" rowSpan={2}>Kill</th><th className="px-1 py-2 border-r border-gray-200 bg-green-50 text-red-600" rowSpan={2}>Err</th><th className="px-1 py-2 border-r border-gray-400 bg-green-50 text-gray-400" rowSpan={2}>/Set</th>
+                        <th className="px-1 py-2 border-r border-gray-200 bg-indigo-50" rowSpan={2}>Ace</th><th className="px-1 py-2 border-r border-gray-200 bg-indigo-50 text-red-600" rowSpan={2}>Err</th><th className="px-1 py-2 border-r border-gray-400 bg-indigo-50 text-gray-500" rowSpan={2}>Tot</th>
+                        <th className="px-1 py-2 border-r border-gray-200" rowSpan={2}>Dig</th><th className="px-1 py-2 border-r border-gray-200 text-red-600" rowSpan={2}>Err</th><th className="px-1 py-2 border-r border-gray-300 text-gray-400" rowSpan={2}>Tot</th>
+                        <th className="px-1 py-2 border-r border-gray-300 bg-gray-50" rowSpan={2}>Ast</th>
+                        {/* ✅ CONDITIONAL HEADER */}
+                        <th className="px-1 py-2 border-r border-gray-200 bg-orange-50" colSpan={3}>Recep / Set</th>
+                      </tr>
+                      {/* Sub-Header for Rec/Set */}
+                      <tr className="bg-gray-50 text-gray-600 border-b border-gray-300 font-bold uppercase text-[9px]">
+                         <th className="px-1 py-1 border-r border-gray-200 bg-orange-50/50">Exc</th>
+                         <th className="px-1 py-1 border-r border-gray-200 bg-orange-50/50 text-red-600">Err</th>
+                         <th className="px-1 py-1 bg-orange-50/50 text-gray-500">Tot</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100 text-gray-900">
@@ -324,6 +332,10 @@ export default function MatchSummaryModal() {
                           const atkEff = calcEff(stats.spikes.won, stats.spikes.error, stats.spikes.total);
                           const killPct = stats.spikes.total > 0 ? ((stats.spikes.won / stats.spikes.total) * 100).toFixed(0) + "%" : "-";
                           const blkPerSet = setsPlayed > 0 ? (stats.blocks.won / setsPlayed).toFixed(2) : "-";
+                          
+                          // ✅ CHECK SETTER
+                          const isSetter = bucketFromPosition(player.position) === "S";
+
                           return (
                             <tr key={player.id} className="hover:bg-gray-50 group transition-colors">
                               <td className="px-2 py-2.5 font-bold border-r border-gray-200 sticky left-0 bg-white group-hover:bg-gray-50">{player.jerseyNumber}</td>
@@ -336,7 +348,21 @@ export default function MatchSummaryModal() {
                               <td className="px-1 py-2.5 border-r border-gray-100 font-bold text-indigo-700">{stats.serves.ace || "-"}</td><td className="px-1 py-2.5 border-r border-gray-100 text-red-600">{stats.serves.error || "-"}</td><td className="px-1 py-2.5 border-r border-gray-300 text-gray-400 text-[11px]">{stats.serves.total || "-"}</td>
                               <td className="px-1 py-2.5 border-r border-gray-100 text-green-600">{stats.dig.exc || "-"}</td><td className="px-1 py-2.5 border-r border-gray-100 text-red-600">{stats.dig.error || "-"}</td><td className="px-1 py-2.5 border-r border-gray-300 text-gray-400 text-[11px]">{stats.dig.total || "-"}</td>
                               <td className="px-1 py-2.5 border-r border-gray-300 text-gray-600">{stats.set.running || "-"}</td>
-                              <td className="px-1 py-2.5 border-r border-gray-100 text-green-600">{stats.receive.exc || "-"}</td><td className="px-1 py-2.5 border-r border-gray-100 text-red-600">{stats.receive.error || "-"}</td><td className="px-1 py-2.5 text-gray-400 text-[11px]">{stats.receive.total || "-"}</td>
+                              
+                              {/* ✅ CONDITIONAL RENDERING: SETS vs RECEIVES */}
+                              {isSetter ? (
+                                <>
+                                  <td className="px-1 py-2.5 border-r border-gray-100 text-green-600 font-bold bg-gray-50/30">{stats.set.exc || "-"}</td>
+                                  <td className="px-1 py-2.5 border-r border-gray-100 text-red-600 bg-gray-50/30">{stats.set.error || "-"}</td>
+                                  <td className="px-1 py-2.5 text-gray-400 text-[11px] bg-gray-50/30">{stats.set.total || "-"}</td>
+                                </>
+                              ) : (
+                                <>
+                                  <td className="px-1 py-2.5 border-r border-gray-100 text-green-600">{stats.receive.exc || "-"}</td>
+                                  <td className="px-1 py-2.5 border-r border-gray-100 text-red-600">{stats.receive.error || "-"}</td>
+                                  <td className="px-1 py-2.5 text-gray-400 text-[11px]">{stats.receive.total || "-"}</td>
+                                </>
+                              )}
                             </tr>
                           );
                       })}
@@ -348,6 +374,7 @@ export default function MatchSummaryModal() {
                         <td className="px-1 text-indigo-700">{currentTotal.serves.ace}</td><td className="px-1 text-red-500">{currentTotal.serves.error}</td><td className="px-1 text-gray-500 border-r border-gray-300">{currentTotal.serves.total}</td>
                         <td className="px-1 text-green-600">{currentTotal.dig.exc}</td><td className="px-1 text-red-500">{currentTotal.dig.error}</td><td className="px-1 text-gray-500 border-r border-gray-300">{currentTotal.dig.total}</td>
                         <td className="px-1 border-r border-gray-300">{currentTotal.set.running}</td>
+                        {/* TEAM TOTAL IS RECEPTION */}
                         <td className="px-1 text-green-600">{currentTotal.receive.exc}</td><td className="px-1 text-red-500">{currentTotal.receive.error}</td><td className="px-1 text-gray-500">{currentTotal.receive.total}</td>
                       </tr>
                     </tbody>
@@ -357,112 +384,9 @@ export default function MatchSummaryModal() {
             </div>
           )}
 
-          {/* 3. ROLE STATS (Fixed Overflow) */}
-          {viewMode === "roles" && (
-            <div className="flex-1 overflow-auto p-4 lg:p-8 bg-gray-50 space-y-8">
-               
-               {/* 3a. ATTACKERS */}
-               <div>
-                 <h3 className="font-black text-sm uppercase tracking-widest text-gray-500 mb-2 pl-1">Attacking Roles (OH, OPP, MB)</h3>
-                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-x-auto">
-                    <table className="w-full text-center text-xs min-w-[900px]">
-                        <thead className="bg-gray-100 text-gray-700 font-bold uppercase tracking-wide border-b border-gray-200">
-                            <tr>
-                                <th className="p-3 text-left">Player</th><th className="p-3">Pos</th>
-                                <th className="p-3 bg-yellow-50 border-l border-r border-gray-200 text-black">Pts</th>
-                                <th className="p-3 bg-blue-50/50">Atk Kill</th><th className="p-3 bg-blue-50/50 text-red-700">Atk Err</th><th className="p-3 bg-blue-50/50 text-gray-500">Tot</th>
-                                <th className="p-3 bg-green-50/50 border-l border-gray-100">Blk Kill</th><th className="p-3 bg-green-50/50 text-red-700">Blk Err</th>
-                                <th className="p-3 bg-indigo-50/50 border-l border-gray-100">Ace</th><th className="p-3 bg-indigo-50/50 text-red-700">Err</th>
-                                <th className="p-3 bg-orange-50/50 border-l border-gray-100">Rec Exc</th><th className="p-3 bg-orange-50/50 text-red-700">Rec Err</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-100">
-                            {[...currentRows].filter(r => ["OH","OPP","MB"].includes(bucketFromPosition(r.player.position))).map((r, i) => (
-                                <tr key={i} className="hover:bg-gray-50 transition-colors">
-                                    <td className="p-3 text-left font-bold text-gray-900">#{r.player.jerseyNumber} {r.player.name}</td>
-                                    <td className="p-3 text-[10px] font-bold text-gray-400 bg-gray-50">{bucketFromPosition(r.player.position)}</td>
-                                    <td className="p-3 font-black bg-yellow-50 border-l border-r border-gray-100 text-blue-700 text-base">{r.stats.points}</td>
-                                    <td className="p-3 font-bold text-blue-700">{r.stats.spikes.won}</td><td className="p-3 text-red-500 font-medium">{r.stats.spikes.error}</td><td className="p-3 text-gray-400">{r.stats.spikes.total}</td>
-                                    <td className="p-3 border-l border-gray-100 font-bold text-green-700">{r.stats.blocks.won}</td><td className="p-3 text-red-500 font-medium">{r.stats.blocks.error}</td>
-                                    <td className="p-3 border-l border-gray-100 font-bold text-indigo-700">{r.stats.serves.ace}</td><td className="p-3 text-red-500 font-medium">{r.stats.serves.error}</td>
-                                    <td className="p-3 border-l border-gray-100 text-green-600 font-bold">{r.stats.receive.exc}</td><td className="p-3 text-red-500 font-medium">{r.stats.receive.error}</td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                 </div>
-               </div>
-
-               <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
-                   {/* 3b. SETTERS */}
-                   <div>
-                        <h3 className="font-black text-sm uppercase tracking-widest text-gray-500 mb-2 pl-1">Setters</h3>
-                        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-x-auto">
-                            <table className="w-full text-center text-xs min-w-[600px]">
-                                <thead className="bg-gray-100 text-gray-700 font-bold uppercase tracking-wide border-b border-gray-200">
-                                    <tr>
-                                        <th className="p-3 text-left">Player</th>
-                                        <th className="p-3 bg-gray-50">Exc Sets</th><th className="p-3 bg-gray-50">Run Sets</th>
-                                        <th className="p-3 bg-yellow-50 border-l border-gray-200">Pts</th>
-                                        <th className="p-3">Atk</th><th className="p-3">Blk</th><th className="p-3">Ace</th><th className="p-3">Dig</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-gray-100">
-                                    {[...currentRows].filter(r => bucketFromPosition(r.player.position) === "S").map((r, i) => (
-                                        <tr key={i} className="hover:bg-gray-50 transition-colors">
-                                            <td className="p-3 text-left font-bold text-gray-900">#{r.player.jerseyNumber} {r.player.name}</td>
-                                            <td className="p-3 font-bold text-green-600 bg-gray-50">{r.stats.set.exc}</td>
-                                            <td className="p-3 font-bold text-blue-600 bg-gray-50">{r.stats.set.running}</td>
-                                            {/* ✅ FIXED: Added text-blue-700 to match user request for visible/colored PTS */}
-                                            <td className="p-3 font-black bg-yellow-50 border-l border-gray-100 text-blue-700 text-base">{r.stats.points}</td>
-                                            {/* ✅ FIXED: Added text-blue-700 to match user request for colored ATK (consistent with other roles) */}
-                                            <td className="p-3 text-blue-700 font-bold">{r.stats.spikes.won}</td>
-                                            <td className="p-3 text-gray-600">{r.stats.blocks.won}</td>
-                                            <td className="p-3 text-gray-600">{r.stats.serves.ace}</td>
-                                            <td className="p-3 text-gray-600">{r.stats.dig.exc}</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                   </div>
-
-                   {/* 3c. LIBEROS */}
-                   <div>
-                        <h3 className="font-black text-sm uppercase tracking-widest text-gray-500 mb-2 pl-1">Liberos</h3>
-                        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-x-auto">
-                            <table className="w-full text-center text-xs min-w-[600px]">
-                                <thead className="bg-gray-100 text-gray-700 font-bold uppercase tracking-wide border-b border-gray-200">
-                                    <tr>
-                                        <th className="p-3 text-left">Player</th>
-                                        <th className="p-3 bg-orange-50 border-l border-gray-200">Rec Eff</th><th className="p-3 bg-orange-50">Exc</th><th className="p-3 bg-orange-50 text-red-600">Err</th>
-                                        <th className="p-3 bg-blue-50 border-l border-gray-200">Dig Eff</th><th className="p-3 bg-blue-50">Exc</th><th className="p-3 bg-blue-50 text-red-600">Err</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-gray-100">
-                                    {[...currentRows].filter(r => bucketFromPosition(r.player.position) === "L").map((r, i) => (
-                                        <tr key={i} className="hover:bg-gray-50 transition-colors">
-                                            <td className="p-3 text-left font-bold text-gray-900">#{r.player.jerseyNumber} {r.player.name}</td>
-                                            <td className="p-3 font-black text-orange-700 border-l border-gray-100 bg-orange-50/30">{calcEff(r.stats.receive.exc, r.stats.receive.error, r.stats.receive.total)}</td>
-                                            <td className="p-3 text-green-600 font-bold">{r.stats.receive.exc}</td>
-                                            <td className="p-3 text-red-500 font-medium">{r.stats.receive.error}</td>
-                                            <td className="p-3 font-black text-blue-700 border-l border-gray-100 bg-blue-50/30">{calcEff(r.stats.dig.exc, r.stats.dig.error, r.stats.dig.total)}</td>
-                                            <td className="p-3 text-green-600 font-bold">{r.stats.dig.exc}</td>
-                                            <td className="p-3 text-red-500 font-medium">{r.stats.dig.error}</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                   </div>
-               </div>
-            </div>
-          )}
-
           {/* 2. RANKINGS (With POG Details) */}
           {viewMode === "rankings" && (
             <div className="flex-1 overflow-auto p-4 lg:p-8 bg-gray-50 space-y-8">
-              {/* Match History */}
               <div className="rounded-xl bg-white border border-gray-200 p-6 shadow-sm">
                   <div className="font-black text-sm mb-4 text-gray-400 uppercase tracking-widest">Match History</div>
                   {savedSets.length === 0 ? <div className="text-sm text-gray-400 italic">No saved sets yet.</div> : (
@@ -557,6 +481,110 @@ export default function MatchSummaryModal() {
                     </div>
                   </div>
               </div>
+            </div>
+          )}
+
+          {/* 3. ROLE STATS (Fixed Overflow) */}
+          {viewMode === "roles" && (
+            <div className="flex-1 overflow-auto p-4 lg:p-8 bg-gray-50 space-y-8">
+               
+               {/* 3a. ATTACKERS */}
+               <div>
+                 <h3 className="font-black text-sm uppercase tracking-widest text-gray-500 mb-2 pl-1">Attacking Roles (OH, OPP, MB)</h3>
+                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-x-auto">
+                    <table className="w-full text-center text-xs min-w-[900px]">
+                        <thead className="bg-gray-100 text-gray-700 font-bold uppercase tracking-wide border-b border-gray-200">
+                            <tr>
+                                <th className="p-3 text-left">Player</th><th className="p-3">Pos</th>
+                                <th className="p-3 bg-yellow-50 border-l border-r border-gray-200 text-black">Pts</th>
+                                <th className="p-3 bg-blue-50/50">Atk Kill</th><th className="p-3 bg-blue-50/50 text-red-700">Atk Err</th><th className="p-3 bg-blue-50/50 text-gray-500">Tot</th>
+                                <th className="p-3 bg-green-50/50 border-l border-gray-100">Blk Kill</th><th className="p-3 bg-green-50/50 text-red-700">Blk Err</th>
+                                <th className="p-3 bg-indigo-50/50 border-l border-gray-100">Ace</th><th className="p-3 bg-indigo-50/50 text-red-700">Err</th>
+                                <th className="p-3 bg-orange-50/50 border-l border-gray-100">Rec Exc</th><th className="p-3 bg-orange-50/50 text-red-700">Rec Err</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                            {[...currentRows].filter(r => ["OH","OPP","MB"].includes(bucketFromPosition(r.player.position))).map((r, i) => (
+                                <tr key={i} className="hover:bg-gray-50 transition-colors">
+                                    <td className="p-3 text-left font-bold text-gray-900">#{r.player.jerseyNumber} {r.player.name}</td>
+                                    <td className="p-3 text-[10px] font-bold text-gray-400 bg-gray-50">{bucketFromPosition(r.player.position)}</td>
+                                    {/* ✅ UPDATED: PTS (Blue Text) */}
+                                    <td className="p-3 font-black bg-yellow-50 border-l border-r border-gray-100 text-blue-700 text-base">{r.stats.points}</td>
+                                    {/* ✅ UPDATED: ATK KILL (Blue Text) */}
+                                    <td className="p-3 font-bold text-blue-700">{r.stats.spikes.won}</td><td className="p-3 text-red-500 font-medium">{r.stats.spikes.error}</td><td className="p-3 text-gray-400">{r.stats.spikes.total}</td>
+                                    <td className="p-3 border-l border-gray-100 font-bold text-green-700">{r.stats.blocks.won}</td><td className="p-3 text-red-500 font-medium">{r.stats.blocks.error}</td>
+                                    <td className="p-3 border-l border-gray-100 font-bold text-indigo-700">{r.stats.serves.ace}</td><td className="p-3 text-red-500 font-medium">{r.stats.serves.error}</td>
+                                    <td className="p-3 border-l border-gray-100 text-green-600 font-bold">{r.stats.receive.exc}</td><td className="p-3 text-red-500 font-medium">{r.stats.receive.error}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                 </div>
+               </div>
+
+               <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
+                   {/* 3b. SETTERS */}
+                   <div>
+                        <h3 className="font-black text-sm uppercase tracking-widest text-gray-500 mb-2 pl-1">Setters</h3>
+                        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-x-auto">
+                            <table className="w-full text-center text-xs min-w-[600px]">
+                                <thead className="bg-gray-100 text-gray-700 font-bold uppercase tracking-wide border-b border-gray-200">
+                                    <tr>
+                                        <th className="p-3 text-left">Player</th>
+                                        <th className="p-3 bg-gray-50">Exc Sets</th><th className="p-3 bg-gray-50">Run Sets</th>
+                                        <th className="p-3 bg-yellow-50 border-l border-gray-200">Pts</th>
+                                        <th className="p-3">Atk</th><th className="p-3">Blk</th><th className="p-3">Ace</th><th className="p-3">Dig</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100">
+                                    {[...currentRows].filter(r => bucketFromPosition(r.player.position) === "S").map((r, i) => (
+                                        <tr key={i} className="hover:bg-gray-50 transition-colors">
+                                            <td className="p-3 text-left font-bold text-gray-900">#{r.player.jerseyNumber} {r.player.name}</td>
+                                            <td className="p-3 font-bold text-green-600 bg-gray-50">{r.stats.set.exc}</td>
+                                            <td className="p-3 font-bold text-blue-600 bg-gray-50">{r.stats.set.running}</td>
+                                            {/* ✅ FIXED: Added text-blue-700 to match user request for visible/colored PTS */}
+                                            <td className="p-3 font-black bg-yellow-50 border-l border-gray-100 text-blue-700 text-base">{r.stats.points}</td>
+                                            {/* ✅ FIXED: Added text-blue-700 to match user request for colored ATK (consistent with other roles) */}
+                                            <td className="p-3 text-blue-700 font-bold">{r.stats.spikes.won}</td>
+                                            <td className="p-3 text-gray-600">{r.stats.blocks.won}</td>
+                                            <td className="p-3 text-gray-600">{r.stats.serves.ace}</td>
+                                            <td className="p-3 text-gray-600">{r.stats.dig.exc}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                   </div>
+
+                   {/* 3c. LIBEROS */}
+                   <div>
+                        <h3 className="font-black text-sm uppercase tracking-widest text-gray-500 mb-2 pl-1">Liberos</h3>
+                        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-x-auto">
+                            <table className="w-full text-center text-xs min-w-[600px]">
+                                <thead className="bg-gray-100 text-gray-700 font-bold uppercase tracking-wide border-b border-gray-200">
+                                    <tr>
+                                        <th className="p-3 text-left">Player</th>
+                                        <th className="p-3 bg-orange-50 border-l border-gray-200">Rec Eff</th><th className="p-3 bg-orange-50">Exc</th><th className="p-3 bg-orange-50 text-red-600">Err</th>
+                                        <th className="p-3 bg-blue-50 border-l border-gray-200">Dig Eff</th><th className="p-3 bg-blue-50">Exc</th><th className="p-3 bg-blue-50 text-red-600">Err</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100">
+                                    {[...currentRows].filter(r => bucketFromPosition(r.player.position) === "L").map((r, i) => (
+                                        <tr key={i} className="hover:bg-gray-50 transition-colors">
+                                            <td className="p-3 text-left font-bold text-gray-900">#{r.player.jerseyNumber} {r.player.name}</td>
+                                            <td className="p-3 font-black text-orange-700 border-l border-gray-100 bg-orange-50/30">{calcEff(r.stats.receive.exc, r.stats.receive.error, r.stats.receive.total)}</td>
+                                            <td className="p-3 text-green-600 font-bold">{r.stats.receive.exc}</td>
+                                            <td className="p-3 text-red-500 font-medium">{r.stats.receive.error}</td>
+                                            <td className="p-3 font-black text-blue-700 border-l border-gray-100 bg-blue-50/30">{calcEff(r.stats.dig.exc, r.stats.dig.error, r.stats.dig.total)}</td>
+                                            <td className="p-3 text-green-600 font-bold">{r.stats.dig.exc}</td>
+                                            <td className="p-3 text-red-500 font-medium">{r.stats.dig.error}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                   </div>
+               </div>
             </div>
           )}
 
