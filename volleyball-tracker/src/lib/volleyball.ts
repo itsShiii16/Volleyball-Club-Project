@@ -4,9 +4,9 @@ export type TeamSide = "left" | "right";
 export type TeamId = "A" | "B";
 
 /**
- * ✅ Positions
+ * Positions
  */
-export type Position = "OH" | "OPP" | "MB" | "S" | "L" | "WS";
+export type Position = "OH" | "OPP" | "MB" | "S" | "L" | "WS" | "DS";
 
 export type PositionGroup = "OH" | "OPP" | "MB" | "S" | "L";
 
@@ -43,7 +43,7 @@ export type Player = {
   position: Position;
 };
 
-export type CourtState = Record<RotationSlot, string | null>; 
+export type CourtState = Record<RotationSlot, string | null>;
 
 export type Skill =
   | "SERVE"
@@ -55,35 +55,43 @@ export type Skill =
   | "SPIKE"
   | "ATTACK"
   | "HIT"
-  | "BLOCK";
+  | "BLOCK"
+  | "SUBSTITUTION";
 
 /**
  * ✅ Outcomes
- * Updated to include neutral outcomes used in Keybind/Button logic.
  */
 export type Outcome =
-  | "PERFECT" 
-  | "GOOD"        // ✅ ADDED: Neutral positive (Dig/Rec/Set)
-  | "SUCCESS" 
-  | "IN_PLAY"     // ✅ ADDED: Neutral continuation (Serve/Attack)
-  | "TOUCH"       // ✅ ADDED: Neutral block contact
-  | "POINT" 
-  | "WIN" 
+  | "PERFECT"
+  | "GOOD"        
+  | "SUCCESS"
+  | "IN_PLAY"     
+  | "POOR"        
+  | "TOUCH"       
+  | "SLASH"       
+  | "OVERPASS"    
+  | "POINT"
+  | "WIN"
   | "ACE"
+  | "ACE_FORCED"  // ✅ NEW: Ace causing error
   | "KILL"
+  | "KILL_FORCED" // ✅ NEW: Kill causing error (Tool/Shank)
   | "BLOCK_POINT"
-  | "STUFF"
-  | "KILL_BLOCK"
-  | "ERROR" 
-  | "FAULT" 
-  | "OUT" 
-  | "NET";
+  | "STUFF"       
+  | "KILL_BLOCK"  
+  | "ERROR"
+  | "FAULT"
+  | "OUT"
+  | "NET"
+  | "BLOCKED"     
+  | "None";       
 
 export const ERROR_OUTCOME_KEYS = [
   "ERROR",
   "FAULT",
   "OUT",
   "NET",
+  "BLOCKED",
   "ATTACK_ERROR",
   "SERVE_ERROR",
   "SERVICE_ERROR",
@@ -100,7 +108,6 @@ export const WIN_OUTCOME_KEYS = [
   "BLOCK_POINT",
   "STUFF",
   "KILL_BLOCK",
-  "SUCCESS", 
 ] as const;
 
 export function resolvePointWinner(input: {
@@ -116,12 +123,11 @@ export function resolvePointWinner(input: {
 
   // 1. Check Errors (Point to Opponent)
   const isError =
-    outcomeKey === "ERROR" ||
-    outcomeKey === "FAULT" ||
+    outcomeKey.includes("ERROR") ||
+    outcomeKey.includes("FAULT") ||
     outcomeKey === "OUT" ||
     outcomeKey === "NET" ||
-    outcomeKey.includes("ERROR") ||
-    outcomeKey.includes("FAULT");
+    outcomeKey === "BLOCKED";
 
   if (isError) return opp;
 
@@ -129,27 +135,15 @@ export function resolvePointWinner(input: {
   const isHardWin =
     outcomeKey === "POINT" ||
     outcomeKey === "WIN" ||
-    outcomeKey === "ACE" ||
-    outcomeKey === "KILL" ||
+    (outcomeKey === "ACE" && !outcomeKey.includes("FORCED")) || // Clean Ace only
+    (outcomeKey === "KILL" && !outcomeKey.includes("FORCED")) || // Clean Kill only
     outcomeKey === "BLOCK_POINT" ||
     outcomeKey === "STUFF" ||
     outcomeKey === "KILL_BLOCK";
 
   if (isHardWin) return acting;
 
-  // 3. Handle Ambiguous "SUCCESS" (Legacy support)
-  // New neutral types (IN_PLAY, TOUCH, GOOD, PERFECT) return null automatically here.
-  if (outcomeKey === "SUCCESS") {
-    const isServe = skillKey.includes("SERVE");
-    const isAttack = skillKey.includes("ATTACK") || skillKey.includes("SPIKE") || skillKey === "HIT";
-    const isBlock = skillKey.includes("BLOCK");
-    
-    // In strict scoring, SUCCESS usually implies point for Serve/Attack/Block 
-    // unless you specifically use IN_PLAY/TOUCH for those scenarios.
-    if (isServe || isAttack || isBlock) return acting;
-  }
-
-  return null; // Rally continues
+  return null; 
 }
 
 export type ActionEvent = {
@@ -160,5 +154,5 @@ export type ActionEvent = {
   slot: RotationSlot;
   skill: Skill;
   outcome: Outcome;
-  pointWinner?: TeamId; 
+  pointWinner?: TeamId;
 };

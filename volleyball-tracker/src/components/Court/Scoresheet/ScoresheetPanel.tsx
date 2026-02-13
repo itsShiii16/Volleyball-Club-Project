@@ -5,7 +5,7 @@ import { useMatchStore } from "@/store/matchStore";
 import type { Skill, Outcome } from "@/lib/volleyball";
 import { slotLabel } from "@/lib/volleyball";
 
-type Btn = { skill: Skill; outcome: Outcome; label: string };
+type Btn = { skill: Skill; outcome: Outcome; label: string; short: string };
 
 const isFrontRowSlot = (slot: number) => slot === 2 || slot === 3 || slot === 4;
 
@@ -33,7 +33,7 @@ function isWingPosition(pos: string) {
   return (
     p === "OH" ||
     p === "OPP" ||
-    p === "WS" || // legacy
+    p === "WS" ||
     p === "OUTSIDE" ||
     p === "OUTSIDE_HITTER" ||
     p === "OPPOSITE" ||
@@ -42,86 +42,110 @@ function isWingPosition(pos: string) {
   );
 }
 
-/**
- * Buttons are aligned with your patched volleyball.ts outcomes:
- * - Point wins: ACE / KILL / BLOCK_POINT
- * - Errors: ERROR (or FAULT/OUT/NET if you later add)
- * - "PERFECT" kept for receive/set quality
- */
+// ✅ VISUAL THEME HELPER
+function getOutcomeTheme(outcome: string) {
+  const u = outcome.toUpperCase();
+  // RED: Errors
+  if (u.includes("ERROR") || u.includes("FAULT") || u.includes("OUT") || u.includes("NET")) {
+    return {
+      btn: "bg-red-50 border-red-200 text-red-900 hover:bg-red-100 hover:border-red-300",
+      dot: "bg-red-500",
+      badge: "bg-red-100 text-red-800 border-red-200"
+    };
+  }
+  // GREEN: Points / Perfect / Kill (Clean)
+  if ((u.includes("KILL") && !u.includes("FORCED")) || (u.includes("ACE") && !u.includes("FORCED")) || u.includes("POINT") || u.includes("PERFECT")) {
+    return {
+      btn: "bg-emerald-50 border-emerald-200 text-emerald-900 hover:bg-emerald-100 hover:border-emerald-300",
+      dot: "bg-emerald-500",
+      badge: "bg-emerald-100 text-emerald-800 border-emerald-200"
+    };
+  }
+  // ORANGE: Slash / Overpass (Warning)
+  if (u.includes("SLASH") || u.includes("OVERPASS") || u.includes("BLOCKED")) {
+    return {
+      btn: "bg-orange-50 border-orange-200 text-orange-900 hover:bg-orange-100 hover:border-orange-300",
+      dot: "bg-orange-500",
+      badge: "bg-orange-100 text-orange-800 border-orange-200"
+    };
+  }
+  // PURPLE: Forced Errors
+  if (u.includes("FORCED")) {
+    return {
+      btn: "bg-purple-50 border-purple-200 text-purple-900 hover:bg-purple-100 hover:border-purple-300",
+      dot: "bg-purple-500",
+      badge: "bg-purple-100 text-purple-800 border-purple-200"
+    };
+  }
+  // YELLOW: Continuation / In Play / Touch
+  return {
+    btn: "bg-amber-50 border-amber-200 text-amber-900 hover:bg-amber-100 hover:border-amber-300",
+    dot: "bg-amber-500",
+    badge: "bg-amber-100 text-amber-800 border-amber-200"
+  };
+}
+
+// ✅ BUTTON GENERATOR
 function buttonsForContext(
   pos: string,
-  opts: { frontRow: boolean; libero: boolean }
+  opts: { frontRow: boolean; libero: boolean; isServingTeam: boolean; isServingPlayer: boolean; }
 ): Btn[] {
   const p = normPos(pos);
+  const isSetter = isSetterPosition(p);
 
-  // Defense / passing
-  const defense: Btn[] = [
-    { skill: "RECEIVE", outcome: "PERFECT", label: "Receive • Perfect" },
-    { skill: "RECEIVE", outcome: "SUCCESS", label: "Receive • Success" },
-    { skill: "RECEIVE", outcome: "ERROR", label: "Receive • Error" },
-
-    { skill: "DIG", outcome: "SUCCESS", label: "Dig • Success" },
-    { skill: "DIG", outcome: "ERROR", label: "Dig • Error" },
+  // 1. Reception
+  const receive: Btn[] = opts.isServingTeam ? [] : [
+    { skill: "RECEIVE", outcome: "PERFECT", label: "Excellent", short: "Exc" },
+    { skill: "RECEIVE", outcome: "SUCCESS", label: "Attempt", short: "Att" },
+    { skill: "RECEIVE", outcome: "ERROR", label: "Error", short: "Err" },
   ];
 
-  // Setting (for setters, but also optionally for others)
-  const setting: Btn[] = [
-    { skill: "SET", outcome: "PERFECT", label: "Set • Perfect" },
-    { skill: "SET", outcome: "SUCCESS", label: "Set • Success" },
-    { skill: "SET", outcome: "ERROR", label: "Set • Error" },
+  // 2. Digs
+  const dig: Btn[] = [
+    { skill: "DIG", outcome: "PERFECT", label: "Perfect", short: "Exc" },
+    { skill: "DIG", outcome: "SUCCESS", label: "Up / In Play", short: "Up" },
+    { skill: "DIG", outcome: "SLASH", label: "Slash / Over", short: "Slash" },
+    { skill: "DIG", outcome: "ERROR", label: "Error / Kill", short: "Err" },
   ];
 
-  // Attacking / serving (point attribution comes from store’s logic)
-  const attackServe: Btn[] = [
-    { skill: "SPIKE", outcome: "KILL", label: "Attack • Kill" },
-    { skill: "SPIKE", outcome: "ERROR", label: "Attack • Error" },
+  // 3. Setting
+  const setBtns: Btn[] = isSetter ? [
+    { skill: "SET", outcome: "PERFECT", label: "Excellent", short: "Exc" },
+    { skill: "SET", outcome: "SUCCESS", label: "Running", short: "Run" },
+    { skill: "SET", outcome: "ERROR", label: "Error", short: "Err" },
+  ] : [];
 
-    { skill: "SERVE", outcome: "ACE", label: "Serve • Ace" },
-    { skill: "SERVE", outcome: "ERROR", label: "Serve • Error" },
-  ];
-
-  // Blocking (front-row only — store also blocks back-row block attempts)
+  // 4. Blocking
   const block: Btn[] = [
-    { skill: "BLOCK", outcome: "BLOCK_POINT", label: "Block • Point" },
-    { skill: "BLOCK", outcome: "ERROR", label: "Block • Error" },
+    { skill: "BLOCK", outcome: "POINT", label: "Kill Block", short: "Kill" },
+    { skill: "BLOCK", outcome: "TOUCH", label: "Touch / Soft", short: "Tch" },
+    { skill: "BLOCK", outcome: "ERROR", label: "Net / Tool", short: "Err" },
+  ];
+  
+  // 5. Attacking
+  const attack: Btn[] = [
+    { skill: "SPIKE", outcome: "KILL", label: "Kill (Clean)", short: "Kill" },
+    { skill: "SPIKE", outcome: "KILL_FORCED", label: "Kill (Forced)", short: "Tool" },
+    { skill: "SPIKE", outcome: "SUCCESS", label: "Dug / In Play", short: "Dig" },
+    { skill: "SPIKE", outcome: "BLOCKED", label: "Got Blocked", short: "Blk" },
+    { skill: "SPIKE", outcome: "ERROR", label: "Out / Net", short: "Err" },
   ];
 
-  // Libero: defense + (optional) set
-  if (opts.libero) {
-    // many liberos set in-system; keep it available
-    return [...defense, ...setting];
-  }
+  // 6. Serving
+  const serve: Btn[] = opts.isServingTeam ? [
+    { skill: "SERVE", outcome: "ACE", label: "Ace (Clean)", short: "Ace" },
+    { skill: "SERVE", outcome: "ACE_FORCED", label: "Ace (Error)", short: "Ace+" },
+    { skill: "SERVE", outcome: "SUCCESS", label: "In Play", short: "In" },
+    { skill: "SERVE", outcome: "ERROR", label: "Error", short: "Err" },
+  ] : [];
 
-  // Setter: emphasize sets, but still allow attack/serve and block when front
-  if (isSetterPosition(p)) {
-    return [
-      ...setting,
-      ...defense,
-      ...(opts.frontRow ? block : []),
-      ...attackServe,
-    ];
-  }
+  // --- ASSEMBLY ---
+  if (opts.libero) return [...receive, ...dig, ...setBtns];
+  if (isSetter) return [...serve, ...setBtns, ...receive, ...dig, ...(opts.frontRow ? block : []), ...attack];
+  if (isMiddlePosition(p)) return [...serve, ...receive, ...dig, ...(opts.frontRow ? block : []), ...attack];
 
-  // Middle: emphasize block + quick attack, still allow serve/defense
-  if (isMiddlePosition(p)) {
-    return [
-      ...defense,
-      ...(opts.frontRow ? block : []),
-      ...attackServe,
-    ];
-  }
-
-  // Wings (OH/OPP/legacy WS): defense + attack + serve + block when front
-  if (isWingPosition(p)) {
-    return [
-      ...defense,
-      ...(opts.frontRow ? block : []),
-      ...attackServe,
-    ];
-  }
-
-  // Default: safe set
-  return [...defense, ...setting, ...(opts.frontRow ? block : []), ...attackServe];
+  // Wingers & Default
+  return [...serve, ...receive, ...dig, ...(opts.frontRow ? block : []), ...attack];
 }
 
 export default function ScoresheetPanel() {
@@ -129,6 +153,10 @@ export default function ScoresheetPanel() {
   const close = useMatchStore((s) => s.closeScoresheet);
   const logEvent = useMatchStore((s) => s.logEvent);
   const undo = useMatchStore((s) => s.undoLastEvent);
+  const currentlyServing = useMatchStore((s) => s.currentlyServing);
+  const rallyState = useMatchStore((s) => s.rallyState);
+  const servingTeam = useMatchStore((s) => s.servingTeam);
+  const leftTeam = useMatchStore((s) => s.leftTeam);
 
   const players = useMatchStore((s) => s.players);
   const courtA = useMatchStore((s) => s.courtA);
@@ -147,12 +175,57 @@ export default function ScoresheetPanel() {
 
     const frontRow = isFrontRowSlot(slot);
     const libero = isLiberoPosition(player.position);
+    
+    // Determine serving context for button generation
+    const isServingTeam = (teamId === servingTeam);
+    const servingSlot = teamId === leftTeam ? 1 : 5;
+    const isServingPlayer = isServingTeam && slot === servingSlot;
 
-    const btns = buttonsForContext(player.position, { frontRow, libero });
+    let btns = buttonsForContext(player.position, { 
+      frontRow, libero, isServingTeam, isServingPlayer 
+    });
+
+    // FSM filtering rules:
+    if (currentlyServing && currentlyServing === teamId) {
+      btns = btns.filter((b) => b.skill === "SERVE");
+    } else if (rallyState === "PRE_RALLY") {
+      if (servingTeam === teamId) btns = btns.filter((b) => b.skill === "SERVE");
+      else btns = [];
+    } else if (rallyState === "AWAIT_RECEIVE") {
+      if (servingTeam !== teamId) btns = btns.filter((b) => b.skill === "RECEIVE");
+      else btns = [];
+    } else if (rallyState === "AWAIT_BLOCK") {
+      const lastEvent = events.length > 0 ? events[0] : null;
+      if (lastEvent && lastEvent.teamId !== teamId) {
+          if (frontRow) {
+             btns = btns.filter((b) => b.skill === "BLOCK");
+          } else {
+             btns = [];
+          }
+      } else {
+          btns = [];
+      }
+    } else if (rallyState === "AWAIT_ERROR") {
+      // ✅ NEW: Strict context-aware error button
+      const lastEvent = events.length > 0 ? events[0] : null;
+      if (lastEvent && lastEvent.teamId !== teamId) {
+          if (lastEvent.skill === "SPIKE" || lastEvent.skill === "ATTACK") {
+             btns = btns.filter(b => b.skill === "DIG" && b.outcome.includes("ERROR"));
+          } else if (lastEvent.skill === "SERVE") {
+             btns = btns.filter(b => b.skill === "RECEIVE" && b.outcome.includes("ERROR"));
+          } else {
+             btns = btns.filter(b => b.skill === "DIG" && b.outcome.includes("ERROR"));
+          }
+      } else {
+          btns = [];
+      }
+    } else if (rallyState === "IN_RALLY") {
+      btns = btns.filter((b) => b.skill !== "SERVE" && b.skill !== "RECEIVE");
+    }
     const playerEvents = events.filter((e) => e.playerId === player.id);
 
     return { teamId, slot, player, btns, playerEvents, frontRow, libero };
-  }, [active, players, courtA, courtB, events]);
+  }, [active, players, courtA, courtB, events, currentlyServing, rallyState, servingTeam, leftTeam]);
 
   if (!active) return null;
 
@@ -226,25 +299,43 @@ export default function ScoresheetPanel() {
         </div>
 
         <div className="mt-5 grid grid-cols-1 gap-2">
-          {info.btns.map((b, idx) => (
-            <button
-              key={idx}
-              onClick={() =>
-                logEvent({
-                  teamId: info.teamId,
-                  slot: info.slot,
-                  skill: b.skill,
-                  outcome: b.outcome,
-                })
-              }
-              className="w-full rounded-xl border border-gray-200 p-3 text-left bg-white hover:bg-gray-50 transition"
-            >
-              <div className="font-semibold text-gray-900">{b.label}</div>
-              <div className="text-[11px] text-gray-500 mt-1">
-                Logs: {b.skill} • {b.outcome}
-              </div>
-            </button>
-          ))}
+          {info.btns.length === 0 && rallyState === "AWAIT_BLOCK" ? (
+             <div className="p-4 text-center text-orange-600 font-bold bg-orange-50 rounded-lg border border-orange-200">
+                Opponent Block required!<br/><span className="text-xs font-normal">Switch team to log the block.</span>
+             </div>
+          ) : info.btns.length === 0 && rallyState === "AWAIT_ERROR" ? (
+             <div className="p-4 text-center text-purple-600 font-bold bg-purple-50 rounded-lg border border-purple-200">
+                Forced Error!<br/><span className="text-xs font-normal">Switch team to log the error.</span>
+             </div>
+          ) : (
+            info.btns.map((b, idx) => {
+              const theme = getOutcomeTheme(b.outcome);
+              return (
+                <button
+                  key={idx}
+                  onClick={() =>
+                    logEvent({
+                      teamId: info.teamId,
+                      slot: info.slot,
+                      skill: b.skill,
+                      outcome: b.outcome,
+                    })
+                  }
+                  className={`w-full relative rounded-xl border-2 p-3 text-left transition ${theme.btn}`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                        <div className="font-semibold">{b.label}</div>
+                        <div className="text-[11px] opacity-70 mt-0.5">
+                          {b.skill} • {b.short}
+                        </div>
+                    </div>
+                    <div className={`w-2 h-2 rounded-full ${theme.dot}`} />
+                  </div>
+                </button>
+              );
+            })
+          )}
         </div>
 
         <div className="mt-6 border-t pt-4 overflow-auto">
@@ -253,21 +344,25 @@ export default function ScoresheetPanel() {
             {info.playerEvents.length === 0 ? (
               <div className="text-xs text-gray-500">No events yet.</div>
             ) : (
-              info.playerEvents.slice(0, 12).map((e) => (
-                <div
-                  key={e.id}
-                  className="rounded-lg bg-gray-50 border border-gray-200 p-2 text-xs"
-                >
-                  <div className="font-semibold text-gray-800">
-                    {String(e.skill)} • {String(e.outcome)}
-                    {e.pointWinner ? (
-                      <span className="ml-2 font-black text-gray-600">
-                        • Point: {e.pointWinner}
-                      </span>
-                    ) : null}
+              info.playerEvents.slice(0, 12).map((e) => {
+                const theme = getOutcomeTheme(e.outcome);
+                return (
+                  <div
+                    key={e.id}
+                    className="flex items-center justify-between rounded-lg bg-gray-50 border border-gray-200 p-2 text-xs"
+                  >
+                    <div className="font-semibold text-gray-800">
+                      {String(e.skill)} • {String(e.outcome)}
+                      {e.pointWinner ? (
+                        <span className="ml-2 font-black text-gray-600">
+                          • Point: {e.pointWinner}
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className={`w-2 h-2 rounded-full ${theme.dot}`} />
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>
