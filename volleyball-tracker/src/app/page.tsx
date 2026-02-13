@@ -32,12 +32,26 @@ export default function Home() {
   const assign = useMatchStore((s) => s.assignPlayerToSlot);
   const resetMatch = useMatchStore((s) => s.resetMatch);
   
+  // ✅ Undo Logic & Events (Needed to check if last action was a sub)
+  const events = useMatchStore((s) => s.events);
   const undoLastEvent = useMatchStore((s) => s.undoLastEvent);
+  
   const canUndo = useMatchStore((s) => {
     if ((s.events?.length ?? 0) > 0) return true;
     if ((s.savedSets?.length ?? 0) > 0 && s.scoreA === 0 && s.scoreB === 0) return true;
     return false;
   });
+
+  // ✅ HANDLER: Undo Sub
+  const handleUndoSub = (teamId: "A" | "B") => {
+    const lastEvent = events[0];
+    // Check if the very last event was a substitution for this team
+    if (lastEvent && lastEvent.skillKey === "SUBSTITUTION" && lastEvent.teamId === teamId) {
+        if (window.confirm(`Undo last substitution for Team ${teamId}?`)) {
+            undoLastEvent();
+        }
+    }
+  };
   
   const rotateTeam = useMatchStore((s) => s.rotateTeam);
   const resetCourt = useMatchStore((s) => s.resetCourt);
@@ -269,8 +283,8 @@ export default function Home() {
                       
                       <div className="h-4 w-px bg-white/20 mx-1"></div>
                       
-                      {/* ✅ SUBS PIPS */}
-                      <SubsPips count={leftSubs} />
+                      {/* ✅ SUBS PIPS with Click Handler */}
+                      <SubsPips count={leftSubs} onClick={() => handleUndoSub(leftTeam)} />
                       <div className="text-[10px] font-bold text-blue-300 uppercase tracking-wider">SUBS</div>
                     </div>
                   </div>
@@ -309,7 +323,8 @@ export default function Home() {
                     />
                     <div className="flex items-center gap-3 px-2">
                       <div className="text-[10px] font-bold text-blue-300 uppercase tracking-wider">SUBS</div>
-                      <SubsPips count={rightSubs} />
+                      {/* ✅ SUBS PIPS with Click Handler */}
+                      <SubsPips count={rightSubs} onClick={() => handleUndoSub(rightTeam)} />
                       
                       <div className="h-4 w-px bg-white/20 mx-1"></div>
 
@@ -418,10 +433,14 @@ function TimeoutPips({ value, onToggle }: { value: boolean[]; onToggle: (idx: nu
   );
 }
 
-// ✅ NEW COMPONENT: SUBS PIPS
-function SubsPips({ count }: { count: number }) {
+// ✅ UPDATED COMPONENT: SUBS PIPS (Clickable)
+function SubsPips({ count, onClick }: { count: number; onClick: () => void }) {
   return (
-    <div className="flex items-center gap-1">
+    <div 
+        className="flex items-center gap-1 cursor-pointer hover:opacity-75 transition-opacity" 
+        onClick={onClick}
+        title="Click to undo last substitution"
+    >
       {[...Array(6)].map((_, i) => (
         <div
           key={i}

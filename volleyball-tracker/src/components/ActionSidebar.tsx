@@ -141,6 +141,7 @@ export default function ActionSidebar() {
 
     const frontRow = isFrontRowSlot(slot);
     const libero = isLiberoPosition(player.position);
+    const isSetter = isSetterPosition(player.position); // ✅ Check if player is Setter
     const isServingTeam = (teamId === servingTeam);
     const servingSlot = teamId === leftTeam ? 1 : 5;
     const isServingPlayer = isServingTeam && slot === servingSlot;
@@ -165,7 +166,10 @@ export default function ActionSidebar() {
         if (groups[key]) groups[key].push(b);
     });
 
-    const ORDER = ["SERVE", "RECEIVE", "SET", "ATTACK", "BLOCK", "DIG"];
+    // ✅ CONDITIONAL ORDER: If Setter, put "SET" at the very top (after Serve if serving)
+    const ORDER = isSetter 
+        ? ["SET", "SERVE", "RECEIVE", "ATTACK", "BLOCK", "DIG"] 
+        : ["SERVE", "RECEIVE", "SET", "ATTACK", "BLOCK", "DIG"];
 
     const visibleGroups = ORDER
         .filter(key => groups[key] && groups[key].length > 0)
@@ -230,7 +234,7 @@ export default function ActionSidebar() {
         </div>
       </div>
 
-      {/* ✅ ACTION GRID - BIGGER BUTTONS */}
+      {/* ✅ ACTION GRID - BIGGER BUTTONS (Preserved Layout) */}
       <div className="flex-1 overflow-y-auto p-4 bg-gray-50/50 space-y-6">
         {info.visibleGroups.length === 0 ? (
            <div className="text-base font-medium text-gray-400 text-center py-10">
@@ -262,7 +266,7 @@ export default function ActionSidebar() {
                           outcome: b.outcome,
                         })
                       }
-                      // ✅ TALLER BUTTONS (py-4), LARGER TEXT
+                      // ✅ PRESERVED SIZE: py-4 px-2
                       className={`relative flex flex-col justify-center items-center py-4 px-2 rounded-xl border-2 shadow-sm transition-all active:scale-[0.96] ${theme.btn}`}
                     >
                       {/* Outcome Label (Large) */}
@@ -280,7 +284,7 @@ export default function ActionSidebar() {
         )}
       </div>
 
-      {/* ✅ EVENT HISTORY LOG - BOLDER & READABLE */}
+      {/* ✅ EVENT HISTORY LOG - PRESERVED STYLING */}
       <div className="border-t bg-white flex flex-col max-h-[35%] shrink-0">
         <div className="p-2 bg-gray-50 border-b text-[10px] font-bold uppercase text-gray-400 tracking-widest text-center">
           Event Log
@@ -302,6 +306,16 @@ export default function ActionSidebar() {
                       // ✅ Find Player & Jersey
                       const p = players.find((x) => x.id === e.playerId);
                       const jersey = p ? p.jerseyNumber : "?";
+
+                      // ✅ Special rendering for SUBS (if present in log)
+                      if (e.skillKey === "SUBSTITUTION") {
+                          return (
+                            <div key={e.id} className="flex items-center justify-between text-xs bg-gray-50 p-1.5 rounded border border-gray-200 shadow-sm">
+                               <span className="text-[10px] font-bold text-gray-500 uppercase tracking-tight">Substitution</span>
+                               <span className="font-mono text-gray-400 text-[9px]">UNDOABLE</span>
+                            </div>
+                          );
+                      }
 
                       return (
                         <div key={e.id} className="flex items-center justify-between text-sm bg-white p-2 rounded border border-gray-200 shadow-sm">

@@ -252,12 +252,14 @@ type MatchStore = {
 export const useMatchStore = create<MatchStore>()(
   persist(
     (set, get) => {
+      // ... (standard logic)
       const isTeamOnLeft = (teamId: TeamId) => get().leftTeam === teamId;
       const getConfig = (state: MatchStore, teamId: TeamId) => teamId === "A" ? state.liberoConfigA : state.liberoConfigB;
       const getSwap = (state: MatchStore, teamId: TeamId) => teamId === "A" ? state.liberoSwapA : state.liberoSwapB;
       const setSwapPatch = (teamId: TeamId, swap: LiberoSwap) => teamId === "A" ? { liberoSwapA: swap } : { liberoSwapB: swap };
 
       const buildSavedSet = (params: any): SavedSet => {
+        // ... (saved set logic)
         const perPlayerCounts: Record<string, Record<StatKey, number>> = {};
         for (const ev of params.events) {
           const k = classifyForPog(ev.skillKey, ev.outcomeKey);
@@ -286,6 +288,7 @@ export const useMatchStore = create<MatchStore>()(
       };
 
       return {
+        // ... (initial state)
         players: [], courtA: emptyCourt(), courtB: emptyCourt(), leftTeam: "A", setLeftTeam: (teamId) => set({ leftTeam: teamId }), swapSides: () => set((state) => ({ leftTeam: state.leftTeam === "A" ? "B" : "A" })),
         selected: null, selectSlot: (teamId, slot, mode = "default") => set({ selected: { teamId, slot, mode } }), clearSelection: () => set({ selected: null }),
         toast: null, setToast: (message, type = "warn") => set({ toast: makeToast(message, type) }), clearToast: () => set({ toast: null }),
@@ -321,7 +324,6 @@ export const useMatchStore = create<MatchStore>()(
 
         // ✅ REVISED SUBSTITUTE ACTION
         assignPlayerToSlot: (teamId, slot, playerId) => set((state) => {
-          // ✅ FIX: 0-0 is ALWAYS SETUP, regardless of set number.
           const isMidGame = state.events.length > 0 || state.scoreA > 0 || state.scoreB > 0;
           const key = teamId === "A" ? "courtA" : "courtB"; 
           const subKey = teamId === "A" ? "activeSubsA" : "activeSubsB";
@@ -348,19 +350,13 @@ export const useMatchStore = create<MatchStore>()(
           const isLiberoReplacement = (inIsLibero && !outIsLibero) || (!inIsLibero && outIsLibero);
           const isSubstitution = isMidGame && !isLiberoReplacement;
 
-          // ✅ 3. SETUP PHASE (0-0, No events)
-          // Allow swapping anyone without sub counts or rules.
           if (!isMidGame) {
              court[slot] = playerId;
-             
              // Update Libero Config if a Libero was placed (so automation works)
              const currentConfig = teamId === "A" ? state.liberoConfigA : state.liberoConfigB;
              let newConfig = { ...currentConfig };
-             if (inIsLibero) {
-                 newConfig.liberoId = playerId;
-             }
+             if (inIsLibero) newConfig.liberoId = playerId;
 
-             // Return Early (No sub counts, no validation)
              const nextState: any = { ...state, [key]: court };
              if (teamId === "A") nextState.liberoConfigA = newConfig;
              else nextState.liberoConfigB = newConfig;
@@ -376,14 +372,12 @@ export const useMatchStore = create<MatchStore>()(
              if (currentPlayerId) {
                  // Is outgoing player a SUB?
                  if (activeSubs[currentPlayerId]) {
-                     // Only original starter can replace sub
                      const originalStarter = activeSubs[currentPlayerId];
                      if (playerId !== originalStarter) {
                          return { ...state, toast: makeToast(`Illegal Sub: Must be replaced by original starter.`, "error") };
                      }
                      delete activeSubs[currentPlayerId];
                  } else {
-                     // Outgoing is Starter. Incoming is Sub.
                      if (Object.keys(activeSubs).includes(playerId)) {
                          return { ...state, toast: makeToast("Player is already on court as a sub.", "error") };
                      }
@@ -397,7 +391,7 @@ export const useMatchStore = create<MatchStore>()(
           // 5. Execute Swap
           court[slot] = playerId;
           
-          // 6. Update Libero Config if a Libero was subbed in (e.g. L2 replaces L1)
+          // 6. Update Libero Config if a Libero was subbed in
           const currentConfig = teamId === "A" ? state.liberoConfigA : state.liberoConfigB;
           let newConfig = { ...currentConfig };
           if (inIsLibero) {
@@ -418,11 +412,28 @@ export const useMatchStore = create<MatchStore>()(
               [countKey]: subsUsed
           };
 
-          // Apply config update if changed
           if (teamId === "A") nextState.liberoConfigA = newConfig;
           else nextState.liberoConfigB = newConfig;
           
-          if (isSubstitution) nextState.toast = makeToast(`Substitution recorded. (${subsUsed}/6)`, "info");
+          if (isSubstitution) {
+              nextState.toast = makeToast(`Substitution recorded. (${subsUsed}/6)`, "info");
+              // ✅ LOG SUBSTITUTION EVENT FOR UNDO
+              // We use "SUBSTITUTION" as the skill key. 
+              const subEvent: InternalEvent = {
+                id: crypto.randomUUID(), ts: Date.now(), teamId, playerId, slot, 
+                skill: "SUBSTITUTION" as any, outcome: "None" as any, // Cast to any to bypass strict type check for now
+                prevScoreA: state.scoreA, prevScoreB: state.scoreB, prevServingTeam: state.servingTeam, 
+                prevCourtA: state.courtA, prevCourtB: state.courtB,
+                prevLiberoSwapA: state.liberoSwapA, prevLiberoSwapB: state.liberoSwapB, 
+                prevRallyCount: state.rallyCount, prevRallyInProgress: state.rallyInProgress,
+                prevServiceRunTeam: state.serviceRunTeam, prevServiceRunCount: state.serviceRunCount, 
+                didSideoutRotate: false, skillKey: "SUBSTITUTION", outcomeKey: "NONE",
+                prevSubsUsedA: state.subsUsedA, prevSubsUsedB: state.subsUsedB,
+                prevActiveSubsA: state.activeSubsA, prevActiveSubsB: state.activeSubsB,
+              };
+              nextState.events = [subEvent, ...state.events];
+          }
+          
           if (applied.toast) nextState.toast = applied.toast;
 
           return nextState;
@@ -508,7 +519,22 @@ export const useMatchStore = create<MatchStore>()(
             const last = state.events[0];
             const scoreChanged = (state.scoreA !== last.prevScoreA || state.scoreB !== last.prevScoreB);
 
+            // ✅ Handle SUB UNDO
+            if (last.skillKey === "SUBSTITUTION") {
+                const [_, ...rest] = state.events;
+                return { 
+                    ...state, events: rest, 
+                    // Restore PREVIOUS sub counts and active subs map
+                    subsUsedA: last.prevSubsUsedA, subsUsedB: last.prevSubsUsedB,
+                    activeSubsA: last.prevActiveSubsA, activeSubsB: last.prevActiveSubsB,
+                    // Restore court state (undo the player swap)
+                    courtA: last.prevCourtA, courtB: last.prevCourtB,
+                    toast: makeToast("Undid Substitution.", "info") 
+                };
+            }
+
             if (scoreChanged) {
+                // ... (Rally Undo Logic)
                 const targetA = last.prevScoreA;
                 const targetB = last.prevScoreB;
                 let count = 0;
@@ -707,7 +733,7 @@ export const useMatchStore = create<MatchStore>()(
     },
     {
       name: "vb-match-store",
-      version: 20,
+      version: 21,
       migrate: (persisted: any) => {
         const state = persisted?.state ?? persisted ?? {};
         const players = Array.isArray(state.players) ? state.players : [];
@@ -724,7 +750,7 @@ export const useMatchStore = create<MatchStore>()(
           setsWonB: typeof state.setsWonB === "number" ? state.setsWonB : 0,
           savedSets: Array.isArray(state.savedSets) ? state.savedSets : [],
           matchSummaryOpen: false,
-          subsUsedA: 0, subsUsedB: 0, activeSubsA: {}, activeSubsB: {} // Init new fields
+          subsUsedA: 0, subsUsedB: 0, activeSubsA: {}, activeSubsB: {}
         };
       },
       partialize: (state) => ({
