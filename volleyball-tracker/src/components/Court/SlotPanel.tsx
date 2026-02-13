@@ -3,9 +3,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMatchStore } from "@/store/matchStore";
 import { slotLabel } from "@/lib/volleyball";
-import type { RotationSlot, TeamId } from "@/lib/volleyball";
+import type { RotationSlot } from "@/lib/volleyball";
 
 type SelectedMode = "default" | "bench";
+
+// Helper to check eligible positions
+function isRotatablePosition(pos: string | undefined) {
+  const p = String(pos ?? "").toUpperCase();
+  return ["MB", "MIDDLE", "OH", "OUTSIDE", "WS", "OPP", "OPPOSITE", "RIGHT"].some(k => p.includes(k));
+}
 
 export default function SlotPanel() {
   const selected = useMatchStore((s) => s.selected);
@@ -64,8 +70,8 @@ export default function SlotPanel() {
       swap.liberoId === playerId;
 
     const replaced =
-      isAutoLiberoOnThisSlot && swap.replacedMbId
-        ? roster.find((p) => p.id === swap.replacedMbId) ?? null
+      isAutoLiberoOnThisSlot && swap.replacedPlayerId
+        ? roster.find((p) => p.id === swap.replacedPlayerId) ?? null
         : null;
 
     return {
@@ -149,23 +155,25 @@ export default function SlotPanel() {
     setSwapMode(false);
   }
 
-  const liberos = roster.filter((p) => p.position === "L");
-  const mbs = roster.filter((p) => p.position === "MB");
+  // ✅ FIX: Cast position to string to allow comparison with "LIBERO"
+  const liberos = roster.filter((p) => p.position === "L" || (p.position as string) === "LIBERO");
+  
+  const rotatablePlayers = roster.filter((p) => isRotatablePosition(p.position));
 
-  function toggleMbId(mbId: string) {
-    const current = Array.isArray(cfg.mbIds) ? [...cfg.mbIds] : [];
-    const exists = current.includes(mbId);
+  function toggleReplacementId(id: string) {
+    const current = Array.isArray(cfg.replacementIds) ? [...cfg.replacementIds] : [];
+    const exists = current.includes(id);
 
     let next = exists
-      ? current.filter((id) => id !== mbId)
-      : [...current, mbId];
+      ? current.filter((x) => x !== id)
+      : [...current, id];
 
     next = Array.from(new Set(next)).slice(0, 2);
 
-    setLiberoConfig(teamId, { mbIds: next });
+    setLiberoConfig(teamId, { replacementIds: next });
   }
 
-  const selectedMbPlayers = (cfg.mbIds ?? [])
+  const selectedReplacements = (cfg.replacementIds ?? [])
     .map((id) => roster.find((p) => p.id === id))
     .filter(Boolean);
 
@@ -249,13 +257,13 @@ export default function SlotPanel() {
 
               <div>
                 <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">
-                  Middles to Replace ({selectedMbPlayers.length}/2)
+                  Players to Rotate ({selectedReplacements.length}/2)
                 </label>
                 <div className="flex flex-col gap-1 max-h-32 overflow-y-auto">
-                  {mbs.length === 0 && <div className="text-xs text-gray-400 italic">No MBs in roster</div>}
-                  {mbs.map((p) => {
-                    const isChecked = cfg.mbIds?.includes(p.id) ?? false;
-                    const isDisabled = !isChecked && (cfg.mbIds?.length ?? 0) >= 2;
+                  {rotatablePlayers.length === 0 && <div className="text-xs text-gray-400 italic">No eligible players (MB/OH/OPP)</div>}
+                  {rotatablePlayers.map((p) => {
+                    const isChecked = cfg.replacementIds?.includes(p.id) ?? false;
+                    const isDisabled = !isChecked && (cfg.replacementIds?.length ?? 0) >= 2;
                     
                     return (
                       <label 
@@ -269,10 +277,10 @@ export default function SlotPanel() {
                           className="rounded text-blue-600 focus:ring-blue-500"
                           checked={isChecked}
                           disabled={isDisabled}
-                          onChange={() => toggleMbId(p.id)}
+                          onChange={() => toggleReplacementId(p.id)}
                         />
                         <span className={`text-sm font-bold ${isChecked ? "text-blue-900" : "text-gray-700"}`}>
-                          #{p.jerseyNumber} {p.name}
+                          #{p.jerseyNumber} {p.name} <span className="text-[10px] text-gray-400 ml-1">({p.position})</span>
                         </span>
                       </label>
                     );
