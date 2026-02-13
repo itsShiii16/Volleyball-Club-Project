@@ -72,7 +72,6 @@ export default function SetupPage() {
 
   /* ------------------ JSON EXPORT ------------------ */
   function exportJSON(teamId?: TeamId) {
-    // ✅ Filter by team if teamId is provided, otherwise export all
     const dataToExport = teamId 
       ? players.filter((p) => p.teamId === teamId)
       : players;
@@ -89,7 +88,6 @@ export default function SetupPage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    // ✅ Dynamic filename
     a.download = teamId ? `roster-team-${teamId}.json` : "roster-full.json";
     a.click();
     URL.revokeObjectURL(url);
@@ -114,7 +112,6 @@ export default function SetupPage() {
         const newPlayers: Player[] = [];
 
         for (const raw of parsed) {
-          // We intentionally regenerate ID to allow importing the same file to both teams
           const id = crypto.randomUUID(); 
           const name = String(raw?.name ?? "");
           const jerseyNumber = Number(raw?.jerseyNumber ?? NaN);
@@ -124,11 +121,9 @@ export default function SetupPage() {
             continue; // Skip invalid
           }
 
-          // ✅ Force the player to the selected Team (A or B)
           newPlayers.push({ id, teamId: targetTeam, name, jerseyNumber, position: pos });
         }
 
-        // ✅ Keep the OTHER team, replace the TARGET team
         const otherTeamPlayers = players.filter(p => p.teamId !== targetTeam);
         setPlayers([...otherTeamPlayers, ...newPlayers]);
 
@@ -142,7 +137,6 @@ export default function SetupPage() {
     reader.readAsText(file);
   }
 
-  // ✅ Button style constant
   const btnSecondary = "px-3 py-2 rounded-lg bg-white text-black shadow hover:shadow-md font-semibold border border-gray-200 transition-all text-xs sm:text-sm";
 
   return (
@@ -270,6 +264,15 @@ export default function SetupPage() {
 
 /* ------------------ LIBERO AUTO-SUB CARD ------------------ */
 
+// ✅ Type definition explicitly matches the store
+type LiberoConfigShape = { 
+  enabled: boolean; 
+  mode: "CLASSIC" | "DUAL"; 
+  liberoId: string | null; 
+  secondLiberoId: string | null;
+  replacementIds: string[] 
+};
+
 function LiberoAutoSubCard({
   title,
   teamId,
@@ -280,11 +283,9 @@ function LiberoAutoSubCard({
   title: string;
   teamId: TeamId;
   players: Player[];
-  config: { enabled: boolean; liberoId: string | null; replacementIds: string[] } | null;
-  setConfig: (
-    teamId: TeamId,
-    cfg: Partial<{ enabled: boolean; liberoId: string | null; replacementIds: string[] }>
-  ) => void;
+  config: LiberoConfigShape | null;
+  // ✅ FIX: Use Partial<LiberoConfigShape> directly, do not use `typeof config` which includes null
+  setConfig: (teamId: TeamId, cfg: Partial<LiberoConfigShape>) => void;
 }) {
   const liberoOptions = players.filter((p) => String(p.position).toUpperCase() === "L" || String(p.position).toUpperCase() === "LIBERO");
   
@@ -294,10 +295,14 @@ function LiberoAutoSubCard({
   });
 
   const enabled = config?.enabled ?? false;
+  const isDual = config?.mode === "DUAL";
   
   // ✅ FIX: Verify Libero Exists
   const rawLiberoId = config?.liberoId ?? null;
   const liberoId = players.some(p => p.id === rawLiberoId) ? rawLiberoId : null;
+
+  const rawSecondLiberoId = config?.secondLiberoId ?? null;
+  const secondLiberoId = players.some(p => p.id === rawSecondLiberoId) ? rawSecondLiberoId : null;
 
   // ✅ FIX: Filter out IDs that do not exist in the current player list (Ghost Players)
   const rawReplacementIds = Array.isArray(config?.replacementIds) ? config!.replacementIds : [];
@@ -322,88 +327,136 @@ function LiberoAutoSubCard({
       <div className="flex items-center justify-between gap-3 mb-3">
         <h2 className="font-extrabold text-lg text-black">{title}</h2>
 
-        <label className="flex items-center gap-2 text-sm font-semibold text-black cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={enabled}
-            onChange={(e) => setConfig(teamId, { enabled: e.target.checked })}
-            className="w-4 h-4 text-pink-600 rounded focus:ring-pink-500"
-          />
-          Enable
-        </label>
-      </div>
-
-      <div className="mt-3 grid grid-cols-1 gap-3">
-        <div>
-          <div className="text-xs font-bold text-black/60 mb-1">Choose Libero</div>
-          <select
-            value={liberoId ?? ""}
-            onChange={(e) => setConfig(teamId, { liberoId: e.target.value || null })}
-            className="w-full border rounded-lg px-3 py-2 bg-white text-black font-semibold"
-          >
-            <option value="">— Select Libero —</option>
-            {liberoOptions.map((p) => (
-              <option key={p.id} value={p.id}>
-                #{p.jerseyNumber} {p.name || "(No name)"} • {p.position}
-              </option>
-            ))}
-          </select>
-
-          {liberoOptions.length === 0 && (
-            <div className="mt-1 text-xs text-amber-700 font-semibold">
-              Add at least one player with position <b>L</b>.
-            </div>
-          )}
-        </div>
-
-        <div>
-          <div className="text-xs font-bold text-black/60 mb-2">Choose 2 Players to Rotate (MB/OH/OPP)</div>
-
-          {replacementOptions.length === 0 ? (
-            <div className="mt-1 text-xs text-amber-700 font-semibold">
-              Add players with position <b>MB, OH, or OPP</b>.
-            </div>
-          ) : (
-            <div className="flex flex-col gap-2">
-              {replacementOptions.map((p) => {
-                const checked = replacementIds.includes(p.id);
-                // Disable ONLY if not checked AND we are full (2/2)
-                const disabled = !checked && replacementIds.length >= 2;
-
-                return (
-                  <label
-                    key={p.id}
-                    className={[
-                      "flex items-center gap-3 rounded-lg border px-3 py-2 transition select-none",
-                      checked ? "border-pink-500 bg-pink-50" : "border-gray-200 hover:bg-gray-50",
-                      disabled ? "opacity-50 cursor-not-allowed hover:bg-white" : "cursor-pointer",
-                    ].join(" ")}
-                  >
+        <div className="flex items-center gap-4">
+            {/* ✅ DUAL MODE TOGGLE */}
+            {enabled && (
+                <label className="flex items-center gap-2 text-xs font-bold text-gray-600 cursor-pointer select-none bg-gray-100 px-2 py-1 rounded-md">
                     <input
-                      type="checkbox"
-                      checked={checked}
-                      disabled={disabled}
-                      onChange={() => toggleReplacement(p.id)}
-                      className="w-4 h-4 text-pink-600 rounded focus:ring-pink-500"
+                        type="checkbox"
+                        checked={isDual}
+                        onChange={(e) => setConfig(teamId, { mode: e.target.checked ? "DUAL" : "CLASSIC" })}
+                        className="w-3 h-3 text-purple-600 rounded focus:ring-purple-500"
                     />
-                    <div className="flex-1 text-sm font-semibold text-black truncate">
-                      #{p.jerseyNumber} {p.name || "(No name)"}
-                    </div>
-                    <div className="text-xs font-extrabold text-black/60">{p.position}</div>
-                  </label>
-                );
-              })}
-            </div>
-          )}
+                    Dual Libero
+                </label>
+            )}
 
-          <div className="mt-2 text-xs text-black/60 font-semibold">
-            Selected:{" "}
-            <b className={replacementIds.length === 2 ? "text-green-600" : "text-amber-700"}>
-              {replacementIds.length}/2
-            </b>
-          </div>
+            <label className="flex items-center gap-2 text-sm font-semibold text-black cursor-pointer select-none">
+            <input
+                type="checkbox"
+                checked={enabled}
+                onChange={(e) => setConfig(teamId, { enabled: e.target.checked })}
+                className="w-4 h-4 text-pink-600 rounded focus:ring-pink-500"
+            />
+            Enable
+            </label>
         </div>
       </div>
+
+      {enabled && (
+          <div className="mt-3 grid grid-cols-1 gap-4">
+            
+            {/* 1. LIBERO SELECTION */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* PRIMARY (RECEIVING) LIBERO */}
+                <div>
+                    <div className="text-xs font-bold text-black/60 mb-1 flex items-center gap-1">
+                        {isDual ? "Receiving Libero" : "Select Libero"}
+                        {isDual && <span className="text-[9px] bg-blue-100 text-blue-700 px-1 rounded">OPP SERVING</span>}
+                    </div>
+                    <select
+                        value={liberoId ?? ""}
+                        onChange={(e) => setConfig(teamId, { liberoId: e.target.value || null })}
+                        className="w-full border rounded-lg px-3 py-2 bg-white text-black font-semibold text-sm"
+                    >
+                        <option value="">— Select —</option>
+                        {liberoOptions.map((p) => (
+                        <option key={p.id} value={p.id}>
+                            #{p.jerseyNumber} {p.name || "(No name)"}
+                        </option>
+                        ))}
+                    </select>
+                </div>
+
+                {/* SECONDARY (DIGGING) LIBERO - ONLY SHOW IN DUAL MODE */}
+                {isDual && (
+                    <div>
+                        <div className="text-xs font-bold text-black/60 mb-1 flex items-center gap-1">
+                            Digging Libero
+                            <span className="text-[9px] bg-green-100 text-green-700 px-1 rounded">TEAM SERVING</span>
+                        </div>
+                        <select
+                            value={secondLiberoId ?? ""}
+                            onChange={(e) => setConfig(teamId, { secondLiberoId: e.target.value || null })}
+                            className="w-full border rounded-lg px-3 py-2 bg-white text-black font-semibold text-sm"
+                        >
+                            <option value="">— Select —</option>
+                            {liberoOptions.map((p) => (
+                            <option key={p.id} value={p.id}>
+                                #{p.jerseyNumber} {p.name || "(No name)"}
+                            </option>
+                            ))}
+                        </select>
+                    </div>
+                )}
+            </div>
+
+            {liberoOptions.length === 0 && (
+                <div className="text-xs text-amber-700 font-semibold bg-amber-50 p-2 rounded">
+                ⚠️ Add at least one player with position <b>L</b>.
+                </div>
+            )}
+
+            {/* 2. REPLACEMENT TARGETS */}
+            <div>
+            <div className="text-xs font-bold text-black/60 mb-2">Choose 2 Players to Rotate (MB/OH/OPP)</div>
+
+            {replacementOptions.length === 0 ? (
+                <div className="mt-1 text-xs text-amber-700 font-semibold">
+                Add players with position <b>MB, OH, or OPP</b>.
+                </div>
+            ) : (
+                <div className="flex flex-col gap-2">
+                {replacementOptions.map((p) => {
+                    const checked = replacementIds.includes(p.id);
+                    // Disable ONLY if not checked AND we are full (2/2)
+                    const disabled = !checked && replacementIds.length >= 2;
+
+                    return (
+                    <label
+                        key={p.id}
+                        className={[
+                        "flex items-center gap-3 rounded-lg border px-3 py-2 transition select-none",
+                        checked ? "border-pink-500 bg-pink-50" : "border-gray-200 hover:bg-gray-50",
+                        disabled ? "opacity-50 cursor-not-allowed hover:bg-white" : "cursor-pointer",
+                        ].join(" ")}
+                    >
+                        <input
+                        type="checkbox"
+                        checked={checked}
+                        disabled={disabled}
+                        onChange={() => toggleReplacement(p.id)}
+                        className="w-4 h-4 text-pink-600 rounded focus:ring-pink-500"
+                        />
+                        <div className="flex-1 text-sm font-semibold text-black truncate">
+                        #{p.jerseyNumber} {p.name || "(No name)"}
+                        </div>
+                        <div className="text-xs font-extrabold text-black/60">{p.position}</div>
+                    </label>
+                    );
+                })}
+                </div>
+            )}
+
+            <div className="mt-2 text-xs text-black/60 font-semibold">
+                Selected:{" "}
+                <b className={replacementIds.length === 2 ? "text-green-600" : "text-amber-700"}>
+                {replacementIds.length}/2
+                </b>
+            </div>
+            </div>
+          </div>
+      )}
     </section>
   );
 }
