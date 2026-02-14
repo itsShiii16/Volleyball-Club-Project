@@ -107,7 +107,7 @@ export default function MatchSummaryModal() {
   const [sheetTab, setSheetTab] = useState<TeamId>("A");
   const [filterSetId, setFilterSetId] = useState<string | "ALL">("ALL");
 
-  // ✅ HANDLER: Export as Picture
+  // ✅ HANDLER: Export as Image
   const handleExportPhoto = async () => {
     if (summaryRef.current === null) return;
     try {
@@ -121,7 +121,7 @@ export default function MatchSummaryModal() {
 
   // ✅ FIXED HANDLER: Multi-Device Export
   const handleExportForPartner = () => {
-    // 1. Gather historical events from finished sets
+    // 1. Gather historical events from ALL finished sets
     const historicalEvents = savedSets.flatMap(set => set.events || []);
     
     // 2. Combine with current active events
@@ -136,6 +136,7 @@ export default function MatchSummaryModal() {
     downloadFile(dataStr, `stats_share_${Date.now()}.json`, "application/json");
   };
 
+  // ✅ FIXED HANDLER: Import with Validation
   const handleImportFromPartner = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -145,7 +146,7 @@ export default function MatchSummaryModal() {
         const partnerEvents = JSON.parse(event.target?.result as string);
         if (Array.isArray(partnerEvents)) {
             importEvents(partnerEvents);
-            alert(`Successfully imported ${partnerEvents.length} stats.`);
+            alert(`Successfully imported ${partnerEvents.length} stats. The 'Full Match' view is now updated.`);
         } else {
             alert("Invalid JSON format: Expected an array of events.");
         }
@@ -194,6 +195,7 @@ export default function MatchSummaryModal() {
 
   const activeEvents = useMemo(() => {
     const saved = filteredSets.flatMap((s) => s.events || []);
+    // ✅ Logic Update: In 'ALL' mode, we merge saved history + current active events (which includes imported data)
     return filterSetId === "ALL" ? [...saved, ...events] : saved;
   }, [filteredSets, events, filterSetId]);
 
@@ -206,8 +208,11 @@ export default function MatchSummaryModal() {
     });
     const teamAPlayers = players.filter(p => p.teamId === "A").sort((a, b) => Number(a.jerseyNumber || 0) - Number(b.jerseyNumber || 0));
     const teamBPlayers = players.filter(p => p.teamId === "B").sort((a, b) => Number(a.jerseyNumber || 0) - Number(b.jerseyNumber || 0));
+    
+    // ✅ PASS activeEvents (Combined) to stats calculator
     const rowsA = teamAPlayers.map(p => ({ player: p, stats: calculatePlayerStats(p.id, activeEvents), setsPlayed: setsPlayedMap[p.id] || 0 }));
     const rowsB = teamBPlayers.map(p => ({ player: p, stats: calculatePlayerStats(p.id, activeEvents), setsPlayed: setsPlayedMap[p.id] || 0 }));
+    
     const sumRows = (rows: typeof rowsA) => {
         const t = { points: 0, spikes: { won: 0, error: 0, total: 0 }, blocks: { won: 0, error: 0 }, serves: { ace: 0, error: 0, total: 0 }, dig: { exc: 0, error: 0, total: 0 }, set: { exc: 0, running: 0, error: 0, total: 0 }, receive: { exc: 0, error: 0, total: 0 } };
         rows.forEach(r => {
