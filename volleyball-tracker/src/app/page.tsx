@@ -257,8 +257,8 @@ export default function Home() {
                 </div>
               )}
 
-              {/* SCOREBOARD - Non-interactive if in Non-Scoring mode */}
-              <div className={`flex flex-col gap-4 items-center w-full ${trackerMode === "NON_SCORING" ? "opacity-60 grayscale-[0.3] pointer-events-none" : ""}`}>
+              {/* Scoreboard is now unblocked for all modes so Non-Scoring users can end rallies */}
+              <div className={`flex flex-col gap-4 items-center w-full ${trackerMode === "NON_SCORING" ? "opacity-90" : ""}`}>
                 
                 <div className="flex items-center gap-4 bg-gray-900/40 px-6 py-2 rounded-full border border-white/5">
                     <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
