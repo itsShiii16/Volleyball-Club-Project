@@ -815,35 +815,8 @@ export const useMatchStore = create<MatchStore>()(
             };
 
             if (state.servingTeam === teamId) {
-                const prevServing = opponentOf(teamId);
-                partial.servingTeam = prevServing;
-
-                const currentCourt = teamId === "A" ? state.courtA : state.courtB;
-                const isLeft = state.leftTeam === teamId;
-                const rotated = isLeft ? rotateCourtBackward(currentCourt) : rotateCourtForward(currentCourt);
-                const mapping = isLeft ? "BACKWARD" : "FORWARD";
-                
-                const config = teamId === "A" ? state.liberoConfigA : state.liberoConfigB;
-                const swap = teamId === "A" ? state.liberoSwapA : state.liberoSwapB;
-
-                const applied = applyLiberoAutomation({
-                    teamId,
-                    court: rotated,
-                    players: state.players,
-                    config,
-                    swap,
-                    rotationMapping: mapping,
-                    servingTeam: prevServing
-                });
-
-                if (teamId === "A") {
-                    partial.courtA = applied.court;
-                    partial.liberoSwapA = applied.swap;
-                } else {
-                    partial.courtB = applied.court;
-                    partial.liberoSwapB = applied.swap;
-                }
-                if (applied.toast) partial.toast = applied.toast;
+                // REMOVE THE ROTATION REVERSAL LOGIC
+                // Just keep the serving team same
             }
 
             return partial;
@@ -852,7 +825,7 @@ export const useMatchStore = create<MatchStore>()(
     },
     {
       name: "vb-match-store",
-      version: 29, // ✅ BUMPED
+      version: 30, // ✅ BUMPED
       migrate: (persisted: any) => {
         const state = persisted?.state ?? persisted ?? {};
         const players = Array.isArray(state.players) ? state.players : [];
