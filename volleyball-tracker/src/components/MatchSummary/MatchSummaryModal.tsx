@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo, useState, useRef } from "react"; // ✅ Added useRef
+import { useMemo, useState, useRef } from "react";
 import { useMatchStore } from "@/store/matchStore";
 import type { TeamId } from "@/lib/volleyball";
-import { toPng } from "html-to-image"; // ✅ Added html-to-image
+import { toPng } from "html-to-image";
 
 // --- HELPERS ---
 const fmtTime = (ts: number) =>
@@ -14,7 +14,6 @@ const normKey = (v: unknown) =>
 
 type PosBucket = "OH" | "OPP" | "S" | "L" | "MB" | "OTHER";
 
-// Strict Type for Rankings
 type RankedItem = {
   playerId: string;
   pogPoints: number;
@@ -38,7 +37,6 @@ function bucketFromPosition(posRaw: unknown): PosBucket {
   return "OTHER";
 }
 
-// Stats Calculation
 const calculatePlayerStats = (playerId: string, events: any[]) => {
   const stats = {
     points: 0,
@@ -52,40 +50,33 @@ const calculatePlayerStats = (playerId: string, events: any[]) => {
 
   for (const ev of events) {
     if (ev.playerId !== playerId) continue;
-
     const skill = ev.skillKey || "";
     const outcome = ev.outcomeKey || "";
-
     if (skill.includes("SPIKE") || skill.includes("ATTACK")) {
       stats.spikes.total++;
       if (outcome.includes("KILL") || outcome.includes("WIN")) { stats.spikes.won++; stats.points++; }
       if (outcome.includes("ERROR") || outcome.includes("OUT") || outcome.includes("BLOCKED") || outcome.includes("NET")) stats.spikes.error++;
     }
-    
     if (skill.includes("BLOCK")) {
         if (outcome.includes("POINT") || outcome.includes("KILL")) { stats.blocks.won++; stats.points++; }
         if (outcome.includes("ERROR") || outcome.includes("NET") || outcome.includes("OUT")) stats.blocks.error++;
     }
-
     if (skill.includes("SERVE")) {
         stats.serves.total++;
         if (outcome.includes("ACE")) { stats.serves.ace++; stats.points++; }
         if (outcome.includes("ERROR") || outcome.includes("NET") || outcome.includes("OUT")) stats.serves.error++;
     }
-
     if (skill.includes("DIG")) {
       stats.dig.total++;
       if (outcome.includes("PERFECT") || outcome.includes("EXCELLENT")) stats.dig.exc++;
       if (outcome.includes("ERROR")) stats.dig.error++;
     }
-
     if (skill.includes("SET")) {
       stats.set.total++;
       if (outcome.includes("PERFECT") || outcome.includes("EXCELLENT")) stats.set.exc++;
       if (outcome.includes("SUCCESS")) stats.set.running++; 
       if (outcome.includes("ERROR")) stats.set.error++;
     }
-
     if (skill.includes("RECEIVE") || skill.includes("RECEPTION")) {
       stats.receive.total++;
       if (outcome.includes("PERFECT") || outcome.includes("EXCELLENT")) stats.receive.exc++;
@@ -110,27 +101,22 @@ export default function MatchSummaryModal() {
   const events = useMatchStore((s) => s.events);
   const importEvents = useMatchStore((s) => s.importEvents);
 
-  const summaryRef = useRef<HTMLDivElement>(null); // ✅ Added Ref for capture
+  const summaryRef = useRef<HTMLDivElement>(null);
   
   const [viewMode, setViewMode] = useState<"sheet" | "rankings" | "roles">("sheet");
   const [sheetTab, setSheetTab] = useState<TeamId>("A");
   const [filterSetId, setFilterSetId] = useState<string | "ALL">("ALL");
 
-  // ✅ HANDLER: Export Summary as Image
+  // ✅ Export Image Handler
   const handleExportPhoto = async () => {
     if (summaryRef.current === null) return;
     try {
-      const dataUrl = await toPng(summaryRef.current, { 
-        cacheBust: true,
-        backgroundColor: "#ffffff" 
-      });
+      const dataUrl = await toPng(summaryRef.current, { cacheBust: true, backgroundColor: "#ffffff" });
       const link = document.createElement("a");
       link.download = `match-summary-${Date.now()}.png`;
       link.href = dataUrl;
       link.click();
-    } catch (err) {
-      console.error("Failed to export image", err);
-    }
+    } catch (err) { console.error("Export failed", err); }
   };
 
   // ✅ Multi-Device Sync Handlers
@@ -147,9 +133,7 @@ export default function MatchSummaryModal() {
       try {
         const partnerEvents = JSON.parse(event.target?.result as string);
         importEvents(partnerEvents);
-      } catch (err) {
-        alert("Invalid file format.");
-      }
+      } catch (err) { alert("Invalid file format."); }
     };
     reader.readAsText(file);
   };
@@ -172,21 +156,12 @@ export default function MatchSummaryModal() {
         if (set.events) { set.events.forEach(e => activeIds.add(e.playerId)); }
         activeIds.forEach(pid => { setsPlayedMap[pid] = (setsPlayedMap[pid] || 0) + 1; });
     });
-
     const teamAPlayers = players.filter(p => p.teamId === "A").sort((a, b) => Number(a.jerseyNumber || 0) - Number(b.jerseyNumber || 0));
     const teamBPlayers = players.filter(p => p.teamId === "B").sort((a, b) => Number(a.jerseyNumber || 0) - Number(b.jerseyNumber || 0));
-
     const rowsA = teamAPlayers.map(p => ({ player: p, stats: calculatePlayerStats(p.id, activeEvents), setsPlayed: setsPlayedMap[p.id] || 0 }));
     const rowsB = teamBPlayers.map(p => ({ player: p, stats: calculatePlayerStats(p.id, activeEvents), setsPlayed: setsPlayedMap[p.id] || 0 }));
-
     const sumRows = (rows: typeof rowsA) => {
-        const t = {
-            points: 0, spikes: { won: 0, error: 0, total: 0 },
-            blocks: { won: 0, error: 0 }, serves: { ace: 0, error: 0, total: 0 },
-            oppError: 0, dig: { exc: 0, error: 0, total: 0 },
-            set: { exc: 0, running: 0, error: 0, total: 0 },
-            receive: { exc: 0, error: 0, total: 0 },
-        };
+        const t = { points: 0, spikes: { won: 0, error: 0, total: 0 }, blocks: { won: 0, error: 0 }, serves: { ace: 0, error: 0, total: 0 }, dig: { exc: 0, error: 0, total: 0 }, set: { exc: 0, running: 0, error: 0, total: 0 }, receive: { exc: 0, error: 0, total: 0 } };
         rows.forEach(r => {
             t.spikes.won += r.stats.spikes.won; t.spikes.error += r.stats.spikes.error; t.spikes.total += r.stats.spikes.total;
             t.blocks.won += r.stats.blocks.won; t.blocks.error += r.stats.blocks.error;
@@ -197,51 +172,35 @@ export default function MatchSummaryModal() {
         });
         return t;
     };
-
-    const totalA = sumRows(rowsA);
-    const totalB = sumRows(rowsB);
-
+    const totalA = sumRows(rowsA); const totalB = sumRows(rowsB);
     totalA.points = filteredSets.reduce((sum, s) => sum + s.finalScoreA, 0);
     totalB.points = filteredSets.reduce((sum, s) => sum + s.finalScoreB, 0);
-
     const setsWonA = savedSets.filter(s => s.winner === "A").length;
     const setsWonB = savedSets.filter(s => s.winner === "B").length;
-
     return { rowsA, rowsB, totalA, totalB, setsWonA, setsWonB };
   }, [filteredSets, activeEvents, players, savedSets]);
 
   const rankingsData = useMemo(() => {
     const totalsPog: Record<string, number> = {};
     const setsPlayedMap: Record<string, number> = {};
-
     for (const set of filteredSets) {
+      if (set.perPlayer) { for (const [pid, data] of Object.entries(set.perPlayer)) { totalsPog[pid] = (totalsPog[pid] ?? 0) + Number(data?.pogPoints ?? 0); } }
       const activeIds = new Set<string>();
-      if (set.perPlayer) { for (const [pid, data] of Object.entries(set.perPlayer)) { totalsPog[pid] = (totalsPog[pid] ?? 0) + Number(data?.pogPoints ?? 0); activeIds.add(pid); } }
+      if (set.events) set.events.forEach(e => activeIds.add(e.playerId));
       activeIds.forEach(pid => setsPlayedMap[pid] = (setsPlayedMap[pid] || 0) + 1);
     }
-
     const ranked = Object.entries(totalsPog)
       .map(([playerId, points]): RankedItem | null => {
         const p = players.find((x) => x.id === playerId);
         if (!p) return null;
-        const bucket = bucketFromPosition(p.position);
-        return {
-          playerId, pogPoints: points, teamId: p.teamId, name: p.name, 
-          jersey: String(p.jerseyNumber || "?"), position: (p.position as any) ?? "", bucket, 
-          pointCredits: 0, errorCredits: 0, setsPlayed: setsPlayedMap[playerId] ?? 0,
-        };
-      })
-      .filter((item): item is RankedItem => item !== null);
-
-    ranked.sort((a, b) => b.pogPoints - a.pogPoints);
-    const pog = ranked[0] ?? null;
+        return { playerId, pogPoints: points, teamId: p.teamId, name: p.name, jersey: String(p.jerseyNumber || "?"), position: (p.position as any) ?? "", bucket: bucketFromPosition(p.position), pointCredits: 0, errorCredits: 0, setsPlayed: setsPlayedMap[playerId] ?? 0 };
+      }).filter((item): item is RankedItem => item !== null).sort((a, b) => b.pogPoints - a.pogPoints);
     const byPosition: Record<PosBucket, RankedItem[]> = { OH: [], OPP: [], S: [], L: [], MB: [], OTHER: [] };
-    for (const r of ranked) { if (byPosition[r.bucket]) byPosition[r.bucket].push(r); else byPosition.OTHER.push(r); }
-
-    return { ranked, pog, byPosition };
+    for (const r of ranked) { byPosition[r.bucket].push(r); }
+    return { ranked, pog: ranked[0] ?? null, byPosition };
   }, [filteredSets, players]);
 
-  // CSV EXPORT
+  // ✅ RESTORED CSV EXPORT
   const handleExportCSV = () => {
     let csv = "Team,Jersey,Name,Sets,Points,Spike Won,Spike Err,Spike Tot,Block Kill,Block Err,Serve Ace,Serve Err,Serve Tot,Dig Exc,Dig Err,Dig Tot,Set Exc,Set Run,Set Err,Set Tot,Rec Exc,Rec Err,Rec Tot\n";
     const processRow = (r: any, team: string) => {
@@ -258,6 +217,7 @@ export default function MatchSummaryModal() {
     downloadFile(csv, `match_stats_${new Date().toISOString().split('T')[0]}.csv`, "text/csv");
   };
 
+  // ✅ RESTORED JSON EXPORT
   const handleExportJSON = () => {
     const exportData = { metadata: { date: new Date().toISOString(), type: "FULL_MATCH_JSON" }, teams: { scoreA: sheetData.setsWonA, scoreB: sheetData.setsWonB }, roster: players, history: savedSets };
     downloadFile(JSON.stringify(exportData, null, 2), "match_backup.json", "application/json");
@@ -274,11 +234,7 @@ export default function MatchSummaryModal() {
   const currentRows = sheetTab === "A" ? sheetData.rowsA : sheetData.rowsB;
   const currentTotal = sheetTab === "A" ? sheetData.totalA : sheetData.totalB;
   const sortedSets = savedSets.slice().sort((a, b) => a.setNumber - b.setNumber);
-
-  // Helper: Find POG Stats
-  const pogStatsRow = rankingsData.pog 
-    ? [...sheetData.rowsA, ...sheetData.rowsB].find(r => r.player.id === rankingsData.pog?.playerId)
-    : null;
+  const pogStatsRow = rankingsData.pog ? [...sheetData.rowsA, ...sheetData.rowsB].find(r => r.player.id === rankingsData.pog?.playerId) : null;
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
@@ -296,38 +252,30 @@ export default function MatchSummaryModal() {
                 </div>
             </div>
             <div className="flex items-center gap-2">
-                {/* Multi-Device Buttons */}
                 <button onClick={handleExportForPartner} className="px-3 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-white font-bold transition text-xs flex items-center gap-1 shadow-sm"><span>📤</span> EXPORT TO PARTNER</button>
                 <label className="px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-white font-bold transition text-xs flex items-center gap-1 shadow-sm cursor-pointer">
-                    <span>📥</span> IMPORT FROM PARTNER
+                    <span>📥</span> IMPORT PARTNER
                     <input type="file" accept=".json" onChange={handleImportFromPartner} className="hidden" />
                 </label>
-
                 <div className="w-px h-6 bg-gray-700 mx-1"></div>
-                
-                {/* ✅ FEATURE: Export Photo Button */}
                 <button onClick={handleExportPhoto} className="px-3 py-2 bg-pink-600 hover:bg-pink-500 rounded-lg text-white font-bold transition text-xs flex items-center gap-1 shadow-sm"><span>📸</span> IMAGE</button>
-                
-                <button onClick={handleExportCSV} className="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-white font-bold transition text-xs flex items-center gap-1 shadow-sm"><span>📊</span> EXPORT CSV</button>
+                <button onClick={handleExportCSV} className="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-white font-bold transition text-xs flex items-center gap-1 shadow-sm"><span>📊</span> CSV</button>
                 <button onClick={handleExportJSON} className="px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-white font-bold transition text-xs flex items-center gap-1 shadow-sm"><span>💾</span> JSON</button>
-                <div className="w-px h-6 bg-gray-700 mx-1"></div>
-                <button onClick={close} className="p-2 bg-white/10 hover:bg-white/20 rounded-lg text-white font-bold transition text-xs">✕ CLOSE</button>
+                <button onClick={close} className="p-2 bg-white/10 hover:bg-white/20 rounded-lg text-white font-bold transition text-xs ml-2">✕ CLOSE</button>
             </div>
           </div>
           <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-hide"><span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mr-2">Filter Stats:</span><button onClick={() => setFilterSetId("ALL")} className={`px-3 py-1.5 rounded-full text-xs font-bold transition border ${filterSetId === "ALL" ? "bg-white text-gray-900 border-white" : "bg-transparent text-gray-400 border-gray-700 hover:border-gray-500 hover:text-white"}`}>FULL MATCH</button>{sortedSets.map(s => (<button key={s.id} onClick={() => setFilterSetId(s.id)} className={`px-3 py-1.5 rounded-full text-xs font-bold transition border whitespace-nowrap ${filterSetId === s.id ? "bg-white text-gray-900 border-white" : "bg-transparent text-gray-400 border-gray-700 hover:border-gray-500 hover:text-white"}`}>SET {s.setNumber}</button>))}</div>
         </div>
 
-        {/* CONTENT (Ref added here to capture everything below header) */}
+        {/* CONTENT */}
         <div ref={summaryRef} className="flex-1 overflow-hidden bg-white flex flex-col">
-          
-          {/* 1. RESULT SHEET */}
           {viewMode === "sheet" && (
             <div className="flex flex-col h-full text-gray-900">
               <div className="shrink-0 flex border-b bg-gray-100">
                   <button onClick={() => setSheetTab("A")} className={`flex-1 py-3 text-sm font-black uppercase tracking-wider ${sheetTab === "A" ? "text-blue-700 border-b-4 border-blue-600 bg-blue-50" : "text-gray-500 hover:bg-gray-200"}`}>Team A</button>
                   <button onClick={() => setSheetTab("B")} className={`flex-1 py-3 text-sm font-black uppercase tracking-wider ${sheetTab === "B" ? "text-red-700 border-b-4 border-red-600 bg-red-50" : "text-gray-500 hover:bg-gray-200"}`}>Team B</button>
               </div>
-              <div className="flex-1 overflow-auto bg-white p-4">
+              <div className="flex-1 overflow-auto p-4">
                 <div className="border border-gray-300 rounded-lg overflow-hidden shadow-sm min-w-[1100px]">
                   <table className="w-full text-center border-collapse text-xs tabular-nums">
                     <thead className="sticky top-0 z-20">
@@ -410,7 +358,7 @@ export default function MatchSummaryModal() {
             </div>
           )}
 
-          {/* 2. RANKINGS */}
+          {/* 2. RANKINGS (With POG Details) */}
           {viewMode === "rankings" && (
             <div className="flex-1 overflow-auto p-4 lg:p-8 bg-gray-50 space-y-8 text-gray-900">
               <div className="rounded-xl bg-white border border-gray-200 p-6 shadow-sm">
@@ -515,13 +463,13 @@ export default function MatchSummaryModal() {
             </div>
           )}
 
-          {/* 3. ROLE STATS */}
+          {/* 3. ROLE STATS (Fixed Overflow) */}
           {viewMode === "roles" && (
             <div className="flex-1 overflow-auto p-4 lg:p-8 bg-gray-50 space-y-8 text-gray-900">
                <div>
                  <h3 className="font-black text-sm uppercase tracking-widest text-gray-500 mb-2 pl-1">Attacking Roles (OH, OPP, MB)</h3>
                  <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-x-auto text-gray-900">
-                    <table className="w-full text-center text-xs min-w-[900px] text-gray-900">
+                    <table className="w-full text-center text-xs min-w-[900px]">
                         <thead className="bg-gray-100 text-gray-700 font-bold uppercase tracking-wide border-b border-gray-200">
                             <tr>
                                 <th className="p-3 text-left">Player</th><th className="p-3">Pos</th>
@@ -532,7 +480,7 @@ export default function MatchSummaryModal() {
                                 <th className="p-3 bg-orange-50/50 border-l border-gray-100">Rec Exc</th><th className="p-3 bg-orange-50/50 text-red-700">Rec Err</th>
                             </tr>
                         </thead>
-                        <tbody className="divide-y divide-gray-100 text-gray-900">
+                        <tbody className="divide-y divide-gray-100">
                             {[...sheetData.rowsA, ...sheetData.rowsB].filter(r => ["OH","OPP","MB"].includes(bucketFromPosition(r.player.position))).map((r, i) => (
                                 <tr key={i} className="hover:bg-gray-50 transition-colors text-gray-900">
                                     <td className="p-3 text-left font-bold text-gray-900">#{r.player.jerseyNumber} {r.player.name}</td>
@@ -610,6 +558,7 @@ export default function MatchSummaryModal() {
                </div>
             </div>
           )}
+
         </div>
       </div>
     </div>
