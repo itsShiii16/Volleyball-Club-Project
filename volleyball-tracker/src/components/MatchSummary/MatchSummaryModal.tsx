@@ -12,6 +12,9 @@ const fmtTime = (ts: number) =>
 const normKey = (v: unknown) =>
   String(v ?? "").trim().toUpperCase().replace(/[^\w\s-]/g, "").replace(/[\s-]+/g, "_");
 
+// Name cleaner for fuzzy matching
+const cleanName = (name: string) => name.trim().toLowerCase().replace(/\s+/g, " ");
+
 type PosBucket = "OH" | "OPP" | "S" | "L" | "MB" | "OTHER";
 
 type RankedItem = {
@@ -52,6 +55,7 @@ const calculatePlayerStats = (playerId: string, events: any[]) => {
     if (ev.playerId !== playerId) continue;
     const skill = ev.skillKey || "";
     const outcome = ev.outcomeKey || "";
+    
     if (skill.includes("SPIKE") || skill.includes("ATTACK")) {
       stats.spikes.total++;
       if (outcome.includes("KILL") || outcome.includes("WIN")) { stats.spikes.won++; stats.points++; }
@@ -107,7 +111,7 @@ export default function MatchSummaryModal() {
   const [sheetTab, setSheetTab] = useState<TeamId>("A");
   const [filterSetId, setFilterSetId] = useState<string | "ALL">("ALL");
 
-  // ✅ HANDLER: Export as Picture
+  // ✅ Export Image
   const handleExportPhoto = async () => {
     if (summaryRef.current === null) return;
     try {
@@ -119,28 +123,40 @@ export default function MatchSummaryModal() {
     } catch (err) { console.error("Export failed", err); }
   };
 
-  // ✅ FIXED HANDLER: Smart Export (Bundles Roster + Events)
+  // ✅ FIXED EXPORT: Calculates Totals instead of raw history
   const handleExportForPartner = () => {
     const historicalEvents = savedSets.flatMap(set => set.events || []);
     const allEvents = [...historicalEvents, ...events];
 
     if (allEvents.length === 0) {
-        alert("No events recorded to export.");
+        alert("No data to export.");
         return;
     }
 
-    // We export the roster too, so the importing device can map IDs
+    // 1. Calculate totals for every player
+    const playerTotals: Record<string, any> = {};
+    players.forEach(p => {
+        const stats = calculatePlayerStats(p.id, allEvents);
+        // Only include if they have at least one stat
+        const hasStats = Object.values(stats).some(val => 
+            typeof val === 'number' ? val > 0 : Object.values(val).some(v => v > 0)
+        );
+        if (hasStats) {
+            playerTotals[p.id] = stats;
+        }
+    });
+
     const payload = {
-        type: "PARTNER_SYNC_V2",
+        type: "TALLIED_STATS_V1",
         roster: players,
-        events: allEvents
+        totals: playerTotals
     };
 
     const dataStr = JSON.stringify(payload, null, 2);
-    downloadFile(dataStr, `stats_share_${Date.now()}.json`, "application/json");
+    downloadFile(dataStr, `tallied_stats_${Date.now()}.json`, "application/json");
   };
 
-  // ✅ FIXED HANDLER: Smart Import (Maps IDs by Name/Jersey)
+  // ✅ FIXED IMPORT: Converts Totals back to Synthetic Events
   const handleImportFromPartner = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -150,61 +166,99 @@ export default function MatchSummaryModal() {
       try {
         const json = JSON.parse(event.target?.result as string);
         
-        let eventsToImport = [];
-        let partnerRoster: any[] = [];
-
-        // Handle both V1 (Array) and V2 (Object with roster) formats
-        if (Array.isArray(json)) {
-            // Legacy format - might fail if IDs differ
-            eventsToImport = json;
-            alert("Warning: Importing legacy format. Stats may not show if player IDs differ.");
-        } else if (json.type === "PARTNER_SYNC_V2" && Array.isArray(json.events)) {
-            eventsToImport = json.events;
-            partnerRoster = json.roster || [];
-        } else {
-            throw new Error("Unknown format");
+        if (json.type !== "TALLIED_STATS_V1") {
+            alert("Please use the new 'Export to Partner' format.");
+            return;
         }
 
-        // 🚀 ID MAPPING MAGIC
-        // If we have the partner's roster, let's translate their IDs to OUR local IDs
-        if (partnerRoster.length > 0) {
-            const idMap = new Map<string, string>(); // PartnerID -> LocalID
+        const partnerRoster = json.roster || [];
+        const totals = json.totals || {};
+        const syntheticEvents: any[] = [];
+        const ts = Date.now(); // Timestamp for synthetic events
 
-            partnerRoster.forEach(pPartner => {
-                // Find a match in our local 'players' list
+        // 1. Map IDs
+        const idMap = new Map<string, string>();
+        if (partnerRoster.length > 0) {
+            partnerRoster.forEach((pPartner: any) => {
                 const localMatch = players.find(pLocal => 
                     pLocal.teamId === pPartner.teamId && 
                     pLocal.jerseyNumber === pPartner.jerseyNumber &&
-                    pLocal.name.trim().toLowerCase() === pPartner.name.trim().toLowerCase()
+                    cleanName(pLocal.name) === cleanName(pPartner.name)
                 );
-
-                if (localMatch) {
-                    idMap.set(pPartner.id, localMatch.id);
-                }
-            });
-
-            // Translate all events
-            eventsToImport = eventsToImport.map((ev: any) => {
-                if (idMap.has(ev.playerId)) {
-                    return { ...ev, playerId: idMap.get(ev.playerId) };
-                }
-                return ev; // Keep original if no match found (might be a ghost player)
+                if (localMatch) idMap.set(pPartner.id, localMatch.id);
             });
         }
 
-        importEvents(eventsToImport);
-        alert(`Successfully synced ${eventsToImport.length} events!`);
+        // 2. Generate Synthetic Events from Tallies
+        Object.entries(totals).forEach(([partnerId, stats]: [string, any]) => {
+            const localId = idMap.get(partnerId);
+            if (!localId) return; // Skip if player not found locally
+
+            const createEvents = (count: number, skill: string, outcome: string) => {
+                for (let i = 0; i < count; i++) {
+                    syntheticEvents.push({
+                        id: crypto.randomUUID(),
+                        ts, // Same timestamp for all, doesn't matter for totals
+                        playerId: localId,
+                        skillKey: skill,
+                        outcomeKey: outcome,
+                        teamId: players.find(p => p.id === localId)?.teamId,
+                        // Dummy data for required fields
+                        skill: skill, outcome: outcome, 
+                        prevScoreA: 0, prevScoreB: 0, prevServingTeam: "A",
+                        prevCourtA: {}, prevCourtB: {},
+                    });
+                }
+            };
+
+            // Reconstruct Spikes
+            createEvents(stats.spikes.won, "SPIKE", "KILL");
+            createEvents(stats.spikes.error, "SPIKE", "ERROR");
+            createEvents(Math.max(0, stats.spikes.total - stats.spikes.won - stats.spikes.error), "SPIKE", "ATTEMPT");
+
+            // Reconstruct Blocks
+            createEvents(stats.blocks.won, "BLOCK", "KILL");
+            createEvents(stats.blocks.error, "BLOCK", "ERROR");
+
+            // Reconstruct Serves
+            createEvents(stats.serves.ace, "SERVE", "ACE");
+            createEvents(stats.serves.error, "SERVE", "ERROR");
+            createEvents(Math.max(0, stats.serves.total - stats.serves.ace - stats.serves.error), "SERVE", "SUCCESS");
+
+            // Reconstruct Digs
+            createEvents(stats.dig.exc, "DIG", "PERFECT");
+            createEvents(stats.dig.error, "DIG", "ERROR");
+            createEvents(Math.max(0, stats.dig.total - stats.dig.exc - stats.dig.error), "DIG", "ATTEMPT");
+
+            // Reconstruct Sets
+            createEvents(stats.set.exc, "SET", "PERFECT");
+            createEvents(stats.set.running, "SET", "SUCCESS"); // Running sets
+            createEvents(stats.set.error, "SET", "ERROR");
+            createEvents(Math.max(0, stats.set.total - stats.set.exc - stats.set.running - stats.set.error), "SET", "ATTEMPT");
+
+            // Reconstruct Receives
+            createEvents(stats.receive.exc, "RECEPTION", "PERFECT");
+            createEvents(stats.receive.error, "RECEPTION", "ERROR");
+            createEvents(Math.max(0, stats.receive.total - stats.receive.exc - stats.receive.error), "RECEPTION", "ATTEMPT");
+        });
+
+        if (syntheticEvents.length > 0) {
+            importEvents(syntheticEvents);
+            alert(`Merged ${syntheticEvents.length} data points from partner. Full Match table updated.`);
+        } else {
+            alert("No matching players found or no stats to import.");
+        }
 
       } catch (err) { 
-        alert("Import failed. Please use a file generated by 'Export to Partner'."); 
+        console.error(err);
+        alert("Import failed. File might be corrupted."); 
       }
     };
     reader.readAsText(file);
     e.target.value = "";
   };
 
-  // ✅ CSV EXPORT
-  const handleExportCSV = () => {
+  const handleExportCSV = () => { /* ... existing CSV logic ... */ 
     let csv = "Team,Jersey,Name,Sets,Points,Spike Won,Spike Err,Spike Tot,Block Kill,Block Err,Serve Ace,Serve Err,Serve Tot,Dig Exc,Dig Err,Dig Tot,Set Exc,Set Run,Set Err,Set Tot,Rec Exc,Rec Err,Rec Tot\n";
     const processRow = (r: any, team: string) => {
         csv += `${team},${r.player.jerseyNumber || ""},${r.player.name},${r.setsPlayed},${r.stats.points},` +
@@ -220,7 +274,6 @@ export default function MatchSummaryModal() {
     downloadFile(csv, `match_stats_${new Date().toISOString().split('T')[0]}.csv`, "text/csv");
   };
 
-  // ✅ JSON BACKUP EXPORT
   const handleExportJSON = () => {
     const exportData = { metadata: { date: new Date().toISOString(), type: "FULL_MATCH_JSON" }, teams: { scoreA: sheetData.setsWonA, scoreB: sheetData.setsWonB }, roster: players, history: savedSets };
     downloadFile(JSON.stringify(exportData, null, 2), "match_backup.json", "application/json");
@@ -424,7 +477,7 @@ export default function MatchSummaryModal() {
             </div>
           )}
 
-          {/* 2. RANKINGS */}
+          {/* 2. RANKINGS (With POG Details) */}
           {viewMode === "rankings" && (
             <div className="flex-1 overflow-auto p-4 lg:p-8 bg-gray-50 space-y-8 text-gray-900">
               <div className="rounded-xl bg-white border border-gray-200 p-6 shadow-sm">
