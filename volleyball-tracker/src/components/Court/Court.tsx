@@ -1,48 +1,16 @@
 "use client";
 
 import { useMatchStore } from "@/store/matchStore";
-import type { RotationSlot, TeamId, Skill } from "@/lib/volleyball";
+import type { RotationSlot, TeamId } from "@/lib/volleyball";
 import { slotLabel } from "@/lib/volleyball";
 import { useDroppable } from "@dnd-kit/core";
 import { positionColors } from "@/lib/position-ui";
-import { useMemo } from "react";
 
 const opponentOf = (teamId: TeamId): TeamId => (teamId === "A" ? "B" : "A");
-
-// ✅ LOGIC: Determine who has "The Puck"
-function usePossession() {
-  const servingTeam = useMatchStore((s) => s.servingTeam);
-  const rallyInProgress = useMatchStore((s) => s.rallyInProgress);
-  const lastEvent = useMatchStore((s) => s.events[0]);
-
-  return useMemo(() => {
-    // 1. Pre-rally: Server has the ball
-    if (!rallyInProgress) return servingTeam;
-
-    // 2. Rally Start: No events yet? Server has it.
-    if (!lastEvent) return servingTeam;
-
-    // 3. Flow Logic
-    // Sending actions (Ball goes to opponent): Serve, Attack, Freeball
-    // Keeping actions (Ball stays on side): Dig, Receive, Set, Block (Touch)
-    const sendingSkills: Skill[] = ["SERVE", "ATTACK", "SPIKE"];
-    
-    // Normalize skill key just in case
-    const skill = String(lastEvent.skill).toUpperCase() as Skill;
-
-    if (sendingSkills.includes(skill)) {
-      return opponentOf(lastEvent.teamId);
-    }
-
-    // Otherwise, the acting team still has the ball (setting up attack)
-    return lastEvent.teamId;
-  }, [servingTeam, rallyInProgress, lastEvent]);
-}
 
 export default function Court() {
   const leftTeam = useMatchStore((s) => s.leftTeam);
   const rightTeam = opponentOf(leftTeam);
-  const possessionTeam = usePossession();
 
   return (
     <div className="w-full max-w-7xl mx-auto aspect-[4/3] rounded-3xl bg-sky-500 p-2 sm:p-4 xl:p-8 shadow-xl transition-all">
@@ -60,23 +28,15 @@ export default function Court() {
         <DashedMarker className="absolute right-[49%] top-0 bottom-0" />
 
         <div className="absolute inset-1 sm:inset-2 xl:inset-6 grid grid-cols-2 gap-0 z-10">
-          <TeamHalf 
-            teamId={leftTeam} 
-            side="left" 
-            hasPossession={possessionTeam === leftTeam} 
-          />
-          <TeamHalf 
-            teamId={rightTeam} 
-            side="right" 
-            hasPossession={possessionTeam === rightTeam} 
-          />
+          <TeamHalf teamId={leftTeam} side="left" />
+          <TeamHalf teamId={rightTeam} side="right" />
         </div>
       </div>
     </div>
   );
 }
 
-function TeamHalf({ side, teamId, hasPossession }: { side: "left" | "right"; teamId: TeamId; hasPossession: boolean }) {
+function TeamHalf({ side, teamId }: { side: "left" | "right"; teamId: TeamId }) {
   const isLeft = side === "left";
   const nearNetFirst = !isLeft;
 
@@ -102,10 +62,8 @@ function TeamHalf({ side, teamId, hasPossession }: { side: "left" | "right"; tea
   return (
     <div
       className={[
-        "h-full w-full border-white/90 flex flex-col justify-center transition-all duration-500",
+        "h-full w-full border-white/90 flex flex-col justify-center",
         isLeft ? "border-r-[2px] xl:border-r-[4px]" : "border-l-[2px] xl:border-l-[4px]",
-        // ✅ VISUAL: "The Puck" (Possession Glow)
-        hasPossession ? "bg-yellow-400/20 shadow-[inset_0_0_60px_rgba(250,204,21,0.4)]" : ""
       ].join(" ")}
     >
       <div className={[
@@ -128,7 +86,6 @@ function CourtSlot({ teamId, slot }: { teamId: TeamId; slot: RotationSlot }) {
   const openScoresheet = useMatchStore((s) => s.openScoresheet);
   const servingTeam = useMatchStore((s) => s.servingTeam);
   const leftTeam = useMatchStore((s) => s.leftTeam); 
-  const rallyInProgress = useMatchStore((s) => s.rallyInProgress);
 
   const court = useMatchStore((s) => (teamId === "A" ? s.courtA : s.courtB));
   const playerId = court[slot];
@@ -136,6 +93,7 @@ function CourtSlot({ teamId, slot }: { teamId: TeamId; slot: RotationSlot }) {
 
   const liberoSwap = teamId === "A" ? useMatchStore((s) => s.liberoSwapA) : useMatchStore((s) => s.liberoSwapB);
   
+  // ✅ FIX: Updated logic to check `replacedPlayerId` instead of `replacedMbId`
   const isLiberoAutoSub = !!playerId && liberoSwap.active && liberoSwap.slot === slot && liberoSwap.liberoId === playerId;
   const replacedPlayer = isLiberoAutoSub && liberoSwap.replacedPlayerId 
     ? players.find((p) => p.id === liberoSwap.replacedPlayerId) ?? null 
@@ -151,9 +109,6 @@ function CourtSlot({ teamId, slot }: { teamId: TeamId; slot: RotationSlot }) {
   const servingSlot: RotationSlot = teamId === leftTeam ? 1 : 5;
   const isServer = !!playerId && teamId === servingTeam && slot === servingSlot;
   const posColors = positionColors(player?.position);
-
-  // ✅ VISUAL: Front Row Indicator
-  const isFrontRow = slot === 2 || slot === 3 || slot === 4;
 
   function handlePrimaryClick() {
     if (!playerId) {
@@ -177,20 +132,13 @@ function CourtSlot({ teamId, slot }: { teamId: TeamId; slot: RotationSlot }) {
         isSelected ? "ring-4 ring-blue-500 z-20 scale-105" : "hover:scale-[1.03] hover:shadow-lg",
         isOver ? "ring-4 ring-emerald-400 bg-emerald-100" : "",
         isServer ? "ring-4 ring-yellow-400 shadow-xl shadow-yellow-500/40 z-10" : "",
-        // ✅ VISUAL: Server Pulse (Only if rally hasn't started)
-        isServer && !rallyInProgress ? "animate-pulse" : "",
         isLiberoAutoSub ? "ring-4 ring-teal-400 shadow-xl shadow-teal-500/40 z-10" : "",
-        
-        // ✅ VISUAL: Front Row Border Top
-        isFrontRow ? "border-t-[6px] border-t-orange-400/80" : ""
       ].join(" ")}
       onClick={handlePrimaryClick}
     >
       {/* Top Row: Label & Badges */}
       <div className="flex items-center justify-between leading-none mb-auto">
-        <div className={`text-[9px] sm:text-[10px] xl:text-sm uppercase font-black tracking-wider ${isFrontRow ? "text-orange-600" : "opacity-60"}`}>
-            {slotLabel[slot]}
-        </div>
+        <div className="text-[9px] sm:text-[10px] xl:text-sm uppercase font-black opacity-60 tracking-wider">{slotLabel[slot]}</div>
         
         <div className="flex gap-1">
           {isServer && <div className="w-2 h-2 sm:w-2.5 sm:h-2.5 xl:w-3 xl:h-3 rounded-full bg-yellow-500 shadow-sm border border-white" title="Server" />}
