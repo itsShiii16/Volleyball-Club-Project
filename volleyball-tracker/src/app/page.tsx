@@ -245,18 +245,22 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* SERVE BUTTONS - Disabled for Non-Scoring trackers */}
-              {trackerMode !== "NON_SCORING" && (
-                <div className="flex justify-center gap-4 py-1">
-                   <button onClick={() => setServingTeam(leftTeam)} className={servingTeam === leftTeam ? btnBlue : btnWhite}>
-                      Serve Left
-                    </button>
-                    <button onClick={() => setServingTeam(rightTeam)} className={servingTeam === rightTeam ? btnBlue : btnWhite}>
-                      Serve Right
-                    </button>
-                </div>
-              )}
-
+              {/* SERVE BUTTONS - Now visible to everyone */}
+              <div className="flex justify-center gap-4 py-1">
+                <button 
+                  onClick={() => setServingTeam(leftTeam)} 
+                  className={servingTeam === leftTeam ? btnBlue : btnWhite}
+                >
+                  Serve Left
+                </button>
+                <button 
+                  onClick={() => setServingTeam(rightTeam)} 
+                  className={servingTeam === rightTeam ? btnBlue : btnWhite}
+                >
+                  Serve Right
+                </button>
+              </div>
+              
               {/* Scoreboard is now unblocked for all modes so Non-Scoring users can end rallies */}
               <div className={`flex flex-col gap-4 items-center w-full ${trackerMode === "NON_SCORING" ? "opacity-90" : ""}`}>
                 
