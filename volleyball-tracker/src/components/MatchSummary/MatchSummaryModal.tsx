@@ -107,7 +107,7 @@ export default function MatchSummaryModal() {
   const [sheetTab, setSheetTab] = useState<TeamId>("A");
   const [filterSetId, setFilterSetId] = useState<string | "ALL">("ALL");
 
-  // ✅ Export Image Handler
+  // ✅ HANDLER: Export as Picture
   const handleExportPhoto = async () => {
     if (summaryRef.current === null) return;
     try {
@@ -119,9 +119,20 @@ export default function MatchSummaryModal() {
     } catch (err) { console.error("Export failed", err); }
   };
 
-  // ✅ Multi-Device Sync Handlers
+  // ✅ FIXED HANDLER: Multi-Device Export
   const handleExportForPartner = () => {
-    const dataStr = JSON.stringify(events, null, 2);
+    // 1. Gather historical events from finished sets
+    const historicalEvents = savedSets.flatMap(set => set.events || []);
+    
+    // 2. Combine with current active events
+    const allEvents = [...historicalEvents, ...events];
+
+    if (allEvents.length === 0) {
+        alert("No events recorded to export.");
+        return;
+    }
+
+    const dataStr = JSON.stringify(allEvents, null, 2);
     downloadFile(dataStr, `stats_share_${Date.now()}.json`, "application/json");
   };
 
@@ -132,10 +143,47 @@ export default function MatchSummaryModal() {
     reader.onload = (event) => {
       try {
         const partnerEvents = JSON.parse(event.target?.result as string);
-        importEvents(partnerEvents);
-      } catch (err) { alert("Invalid file format."); }
+        if (Array.isArray(partnerEvents)) {
+            importEvents(partnerEvents);
+            alert(`Successfully imported ${partnerEvents.length} stats.`);
+        } else {
+            alert("Invalid JSON format: Expected an array of events.");
+        }
+      } catch (err) { 
+        alert("Invalid file format."); 
+      }
     };
     reader.readAsText(file);
+    e.target.value = ""; // Reset input
+  };
+
+  // ✅ CSV EXPORT
+  const handleExportCSV = () => {
+    let csv = "Team,Jersey,Name,Sets,Points,Spike Won,Spike Err,Spike Tot,Block Kill,Block Err,Serve Ace,Serve Err,Serve Tot,Dig Exc,Dig Err,Dig Tot,Set Exc,Set Run,Set Err,Set Tot,Rec Exc,Rec Err,Rec Tot\n";
+    const processRow = (r: any, team: string) => {
+        csv += `${team},${r.player.jerseyNumber || ""},${r.player.name},${r.setsPlayed},${r.stats.points},` +
+               `${r.stats.spikes.won},${r.stats.spikes.error},${r.stats.spikes.total},` +
+               `${r.stats.blocks.won},${r.stats.blocks.error},` +
+               `${r.stats.serves.ace},${r.stats.serves.error},${r.stats.serves.total},` +
+               `${r.stats.dig.exc},${r.stats.dig.error},${r.stats.dig.total},` +
+               `${r.stats.set.exc},${r.stats.set.running},${r.stats.set.error},${r.stats.set.total},` +
+               `${r.stats.receive.exc},${r.stats.receive.error},${r.stats.receive.total}\n`;
+    };
+    sheetData.rowsA.forEach(r => processRow(r, "A"));
+    sheetData.rowsB.forEach(r => processRow(r, "B"));
+    downloadFile(csv, `match_stats_${new Date().toISOString().split('T')[0]}.csv`, "text/csv");
+  };
+
+  // ✅ JSON BACKUP EXPORT
+  const handleExportJSON = () => {
+    const exportData = { metadata: { date: new Date().toISOString(), type: "FULL_MATCH_JSON" }, teams: { scoreA: sheetData.setsWonA, scoreB: sheetData.setsWonB }, roster: players, history: savedSets };
+    downloadFile(JSON.stringify(exportData, null, 2), "match_backup.json", "application/json");
+  };
+
+  const downloadFile = (content: string, fileName: string, type: string) => {
+    const blob = new Blob([content], { type });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = fileName; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
   };
 
   // --- FILTERED DATA ---
@@ -199,35 +247,6 @@ export default function MatchSummaryModal() {
     for (const r of ranked) { byPosition[r.bucket].push(r); }
     return { ranked, pog: ranked[0] ?? null, byPosition };
   }, [filteredSets, players]);
-
-  // ✅ RESTORED CSV EXPORT
-  const handleExportCSV = () => {
-    let csv = "Team,Jersey,Name,Sets,Points,Spike Won,Spike Err,Spike Tot,Block Kill,Block Err,Serve Ace,Serve Err,Serve Tot,Dig Exc,Dig Err,Dig Tot,Set Exc,Set Run,Set Err,Set Tot,Rec Exc,Rec Err,Rec Tot\n";
-    const processRow = (r: any, team: string) => {
-        csv += `${team},${r.player.jerseyNumber || ""},${r.player.name},${r.setsPlayed},${r.stats.points},` +
-               `${r.stats.spikes.won},${r.stats.spikes.error},${r.stats.spikes.total},` +
-               `${r.stats.blocks.won},${r.stats.blocks.error},` +
-               `${r.stats.serves.ace},${r.stats.serves.error},${r.stats.serves.total},` +
-               `${r.stats.dig.exc},${r.stats.dig.error},${r.stats.dig.total},` +
-               `${r.stats.set.exc},${r.stats.set.running},${r.stats.set.error},${r.stats.set.total},` +
-               `${r.stats.receive.exc},${r.stats.receive.error},${r.stats.receive.total}\n`;
-    };
-    sheetData.rowsA.forEach(r => processRow(r, "A"));
-    sheetData.rowsB.forEach(r => processRow(r, "B"));
-    downloadFile(csv, `match_stats_${new Date().toISOString().split('T')[0]}.csv`, "text/csv");
-  };
-
-  // ✅ RESTORED JSON EXPORT
-  const handleExportJSON = () => {
-    const exportData = { metadata: { date: new Date().toISOString(), type: "FULL_MATCH_JSON" }, teams: { scoreA: sheetData.setsWonA, scoreB: sheetData.setsWonB }, roster: players, history: savedSets };
-    downloadFile(JSON.stringify(exportData, null, 2), "match_backup.json", "application/json");
-  };
-
-  const downloadFile = (content: string, fileName: string, type: string) => {
-    const blob = new Blob([content], { type });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = fileName; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
-  };
 
   if (!open) return null;
 
@@ -558,7 +577,6 @@ export default function MatchSummaryModal() {
                </div>
             </div>
           )}
-
         </div>
       </div>
     </div>
