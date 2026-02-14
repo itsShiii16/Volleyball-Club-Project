@@ -53,11 +53,25 @@ type ToastType = "info" | "warn" | "error";
 export type ToastState = { id: string; message: string; type: ToastType; };
 const makeToast = (message: string, type: ToastType = "warn"): ToastState => ({ id: crypto.randomUUID(), message, type });
 
-// ✅ UPDATED CONFIG: Renamed mbIds to replacementIds to support OH/OPP
-type LiberoConfig = { enabled: boolean; liberoId: string | null; replacementIds: string[]; };
+// ✅ UPDATED CONFIG: Added 'mode' and 'secondLiberoId'
+type LiberoConfig = { 
+  enabled: boolean; 
+  mode: "CLASSIC" | "DUAL"; // CLASSIC = 1 Libero, DUAL = Rec/Dig Split
+  liberoId: string | null; // Primary (Receiving)
+  secondLiberoId: string | null; // Secondary (Digging)
+  replacementIds: string[]; 
+};
+
 type LiberoSwap = { active: boolean; slot: RotationSlot | null; liberoId: string | null; replacedPlayerId: string | null; };
 
-const defaultLiberoConfig = (): LiberoConfig => ({ enabled: false, liberoId: null, replacementIds: [] });
+const defaultLiberoConfig = (): LiberoConfig => ({ 
+  enabled: false, 
+  mode: "CLASSIC",
+  liberoId: null, 
+  secondLiberoId: null,
+  replacementIds: [] 
+});
+
 const defaultLiberoSwap = (): LiberoSwap => ({ active: false, slot: null, liberoId: null, replacedPlayerId: null });
 
 const mapSlotForward = (slot: RotationSlot): RotationSlot => {
@@ -81,13 +95,27 @@ function applyLiberoAutomation(params: { teamId: TeamId; court: CourtState; play
     return { court: nextCourt, swap: nextSwap };
   }
 
-  // ✅ ENFORCE MAX 2 SELECTION LIMIT
+  // ✅ DETERMINE ACTIVE LIBERO (Dual Logic)
+  // If receiving (opponent serving) -> Primary (Rec)
+  // If serving/defending (we serving) -> Secondary (Dig), fallback to Primary if not set
+  let targetLiberoId = config.liberoId;
+  const isServing = params.servingTeam === teamId;
+  
+  if (config.mode === "DUAL" && config.secondLiberoId) {
+      if (isServing) {
+          targetLiberoId = config.secondLiberoId;
+      } else {
+          targetLiberoId = config.liberoId;
+      }
+  }
+
+  // Enforce Max 2 replacements
   const targetIds = Array.from(new Set(cfgTargetIds.filter(Boolean))).slice(0, 2);
   
-  const libero = players.find((p) => p.id === config.liberoId) || null;
+  const libero = players.find((p) => p.id === targetLiberoId) || null;
   const targetPlayers = targetIds.map((id) => players.find((p) => p.id === id) || null).filter(Boolean) as Player[];
 
-  if (!libero) { if (nextSwap.active) nextSwap = defaultLiberoSwap(); return { court: nextCourt, swap: nextSwap, toast: makeToast("Libero config invalid: Libero not found.", "warn") }; }
+  if (!libero) { if (nextSwap.active) nextSwap = defaultLiberoSwap(); return { court: nextCourt, swap: nextSwap, toast: makeToast("Libero config invalid: Active Libero not found.", "warn") }; }
   if (!isLiberoPlayer(libero)) return { court: nextCourt, swap: defaultLiberoSwap(), toast: makeToast("Selected Libero is not a Libero position.", "warn") };
   if (targetPlayers.length === 0) { if (nextSwap.active) nextSwap = defaultLiberoSwap(); return { court: nextCourt, swap: nextSwap, toast: makeToast("Libero config invalid: No replacements found.", "warn") }; }
 
@@ -97,6 +125,7 @@ function applyLiberoAutomation(params: { teamId: TeamId; court: CourtState; play
     return found ? (Number(found[0]) as RotationSlot) : null;
   };
 
+  // 0. Handle Rotation Mapping of the Swap Record
   if (nextSwap.active && nextSwap.slot && params.rotationMapping) {
     nextSwap.slot = params.rotationMapping === "FORWARD" ? mapSlotForward(nextSwap.slot) : mapSlotBackward(nextSwap.slot);
   }
@@ -104,25 +133,43 @@ function applyLiberoAutomation(params: { teamId: TeamId; court: CourtState; play
   // 1. Check if Libero needs to come OUT (Rotating to Front)
   if (nextSwap.active && nextSwap.slot && nextSwap.liberoId && nextSwap.replacedPlayerId) {
     if (isFrontRowSlot(nextSwap.slot)) {
-      if (nextCourt[nextSwap.slot] === nextSwap.liberoId) nextCourt[nextSwap.slot] = nextSwap.replacedPlayerId;
+      // Must exit
+      if (nextCourt[nextSwap.slot] === nextSwap.liberoId || nextCourt[nextSwap.slot] === config.liberoId || nextCourt[nextSwap.slot] === config.secondLiberoId) {
+          nextCourt[nextSwap.slot] = nextSwap.replacedPlayerId;
+      }
       return { court: nextCourt, swap: defaultLiberoSwap(), toast: makeToast(`Auto-sub: ${teamId} Libero out (Player returns to front row).`, "info") };
     }
+    
+    // ✅ DUAL LIBERO SWITCH: If active swap exists, but it's the WRONG libero for the current phase
+    if (nextSwap.active && nextSwap.liberoId !== targetLiberoId) {
+        // Swap the liberos in the same slot
+        if (nextCourt[nextSwap.slot] === nextSwap.liberoId) {
+            nextCourt[nextSwap.slot] = targetLiberoId;
+            nextSwap.liberoId = targetLiberoId;
+            return { court: nextCourt, swap: nextSwap, toast: makeToast(`Dual Libero: Switched to ${isServing ? "Digging" : "Receiving"} Libero.`, "info") };
+        }
+    }
+
     // Consistency check
     if (nextCourt[nextSwap.slot] !== nextSwap.liberoId) {
-      if (nextCourt[nextSwap.slot] === nextSwap.replacedPlayerId) nextCourt[nextSwap.slot] = nextSwap.liberoId;
-      else nextSwap = defaultLiberoSwap();
+      if (nextCourt[nextSwap.slot] === nextSwap.replacedPlayerId) {
+          // Manually reset by user maybe?
+          nextSwap = defaultLiberoSwap();
+      }
     }
+    
     if (hasIllegalLiberoFrontRow(nextCourt, players)) return { court, swap: defaultLiberoSwap(), toast: makeToast("Illegal state prevented: Libero in front row.", "error") };
     return { court: nextCourt, swap: nextSwap };
   }
 
   // 2. Check if Libero needs to go IN (Target Rotating to Back)
-  const liberoSlot = config.liberoId ? findSlotOf(config.liberoId) : null;
-  if (!liberoSlot) {
+  // We check if the *Active* libero is already in. 
+  // If swap is inactive, we look for a target to replace.
+  
+  if (!nextSwap.active) {
     let chosenTargetId: string | null = null;
     let chosenTargetSlot: RotationSlot | null = null;
     
-    // Check all configured replacements (MB, OH, OPP)
     for (const targetId of targetIds) {
       const targetSlot = findSlotOf(targetId);
       if (targetSlot && isBackRowSlot(targetSlot)) { 
@@ -133,8 +180,8 @@ function applyLiberoAutomation(params: { teamId: TeamId; court: CourtState; play
     }
 
     if (chosenTargetId && chosenTargetSlot) {
-      nextCourt[chosenTargetSlot] = config.liberoId;
-      const started: LiberoSwap = { active: true, slot: chosenTargetSlot, liberoId: config.liberoId, replacedPlayerId: chosenTargetId };
+      nextCourt[chosenTargetSlot] = targetLiberoId;
+      const started: LiberoSwap = { active: true, slot: chosenTargetSlot, liberoId: targetLiberoId, replacedPlayerId: chosenTargetId };
       
       if (hasIllegalLiberoFrontRow(nextCourt, players)) return { court, swap: defaultLiberoSwap(), toast: makeToast("Illegal state prevented: Libero in front row.", "error") };
       
@@ -726,27 +773,27 @@ export const useMatchStore = create<MatchStore>()(
     },
     {
       name: "vb-match-store",
-      version: 22, // ✅ BUMP VERSION
+      version: 23, // ✅ BUMP VERSION
       migrate: (persisted: any) => {
         const state = persisted?.state ?? persisted ?? {};
         const players = Array.isArray(state.players) ? state.players : [];
         const validPlayerIds = new Set(players.map((p: any) => p.id));
         
-        // ✅ NEW: cleanReplacementIds handles the new field
         const cleanReplacementIds = (ids: any) => (Array.isArray(ids) ? ids.filter((id: string) => validPlayerIds.has(id)) : []);
         const cleanLiberoId = (id: any) => (validPlayerIds.has(id) ? id : null);
 
-        // ✅ NEW: Migrate mbIds -> replacementIds
+        // ✅ NEW: Migrate config to include mode/secondLiberoId
         const migrateConfig = (oldCfg: any) => {
             const base = { ...defaultLiberoConfig(), ...(oldCfg ?? {}) };
-            // If old mbIds exists but no replacementIds, migrate it
             if (base.mbIds && (!base.replacementIds || base.replacementIds.length === 0)) {
                 base.replacementIds = base.mbIds;
             }
             return {
                 ...base,
                 liberoId: cleanLiberoId(base.liberoId),
-                replacementIds: cleanReplacementIds(base.replacementIds)
+                replacementIds: cleanReplacementIds(base.replacementIds),
+                mode: base.mode || "CLASSIC",
+                secondLiberoId: cleanLiberoId(base.secondLiberoId)
             };
         };
 
