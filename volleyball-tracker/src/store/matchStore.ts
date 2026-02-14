@@ -140,7 +140,6 @@ function applyLiberoAutomation(params: { teamId: TeamId; court: CourtState; play
         if (nextCourt[nextSwap.slot] === nextSwap.liberoId) {
             nextCourt[nextSwap.slot] = targetLiberoId;
             nextSwap.liberoId = targetLiberoId;
-            // Silent swap for dual libero to reduce toast spam
         }
     }
 
@@ -268,9 +267,7 @@ type SetRules = { bestOf: 3 | 5 | 1; regularPoints: number; decidingPoints: numb
 const defaultSetRules = (): SetRules => ({ bestOf: 3, regularPoints: 25, decidingPoints: 15, winBy: 2, clearCourtsOnSetEnd: false });
 
 function pointsToWinForSet(rules: SetRules, setNumber: number) { 
-  // Determine if this is a deciding set
   const maxSets = rules.bestOf;
-  // If setNumber equals maxSets (e.g. 3rd set in Bo3), it's deciding
   const isDeciding = setNumber === maxSets; 
   return isDeciding ? rules.decidingPoints : rules.regularPoints; 
 }
@@ -291,9 +288,9 @@ type InternalEvent = {
   prevSubsUsedA: number; prevSubsUsedB: number; 
   prevActiveSubsA: Record<string, string>; prevActiveSubsB: Record<string, string>;
   trackerMode?: TrackerMode;
-  prevSetNumber?: number; // ✅ For set rollback
-  prevSetsWonA?: number; // ✅ For set rollback
-  prevSetsWonB?: number; // ✅ For set rollback
+  prevSetNumber?: number;
+  prevSetsWonA?: number;
+  prevSetsWonB?: number;
 };
 
 type SavedSet = { id: string; ts: number; setNumber: number; pointsToWin: number; winner: TeamId; finalScoreA: number; finalScoreB: number; events: InternalEvent[]; perPlayer: Record<string, PlayerSetStats>; };
@@ -317,7 +314,8 @@ type MatchStore = {
   activeScoresheet: { teamId: TeamId; slot: RotationSlot } | null; openScoresheet: (teamId: TeamId, slot: RotationSlot) => void; closeScoresheet: () => void;
   scoreA: number; scoreB: number; servingTeam: TeamId; setServingTeam: (teamId: TeamId) => void;
   events: InternalEvent[]; logEvent: (input: { teamId: TeamId; slot: RotationSlot; skill: Skill; outcome: Outcome }) => void;
-  undoLastEvent: () => void; endSet: (winner?: TeamId) => void; resetCourt: (teamId: TeamId) => void; resetMatch: () => void;
+  undoLastEvent: () => void; undoFromEvent: (eventId: string) => void; // ✅ Added to Type
+  endSet: (winner?: TeamId) => void; resetCourt: (teamId: TeamId) => void; resetMatch: () => void;
   manualSetScore: (teamId: TeamId, score: number) => void; manualSetSets: (teamId: TeamId, sets: number) => void;
   incrementScore: (teamId: TeamId) => void; decrementScore: (teamId: TeamId) => void;
   subsUsedA: number; subsUsedB: number;
@@ -509,17 +507,14 @@ export const useMatchStore = create<MatchStore>()(
         scoreA: 0, scoreB: 0, servingTeam: "A", setServingTeam: (teamId) => set(() => ({ servingTeam: teamId, serviceRunTeam: teamId, serviceRunCount: 0, rallyInProgress: false })), events: [],
 
         endSet: (winner) => set((state) => {
-          // Calculate winner automatically if not provided
           const pointsToWin = pointsToWinForSet(state.setRules, state.setNumber);
           const computedWinner = winner ?? hasSetWinner(state.scoreA, state.scoreB, pointsToWin, state.setRules.winBy);
-          
           if (!computedWinner) return { ...state, toast: makeToast("Set not finished yet.", "warn") };
           
           const saved = buildSavedSet({ setNumber: state.setNumber, pointsToWin, winner: computedWinner, finalScoreA: state.scoreA, finalScoreB: state.scoreB, events: state.events.slice().reverse(), players: state.players });
           const nextSetsWonA = computedWinner === "A" ? state.setsWonA + 1 : state.setsWonA;
           const nextSetsWonB = computedWinner === "B" ? state.setsWonB + 1 : state.setsWonB;
           
-          // Match Over Logic
           const setsNeeded = Math.ceil(state.setRules.bestOf / 2);
           const matchOver = nextSetsWonA >= setsNeeded || nextSetsWonB >= setsNeeded;
 
@@ -527,14 +522,11 @@ export const useMatchStore = create<MatchStore>()(
              return { ...state, savedSets: [saved, ...state.savedSets], setsWonA: nextSetsWonA, setsWonB: nextSetsWonB, events: [], toast: makeToast(`Match Over! Winner: Team ${computedWinner}`, "info") };
           }
 
-          const after = resetAfterSet(state, computedWinner === "A" ? "B" : "A"); // Loser serves first in next set? Standard rule is loser of set serves. Or alternate? Assuming loser.
-          // Standard FIVB: First service of next set is by team that didn't serve first in previous set. But let's stick to simple logic or user override.
-          
+          const after = resetAfterSet(state, computedWinner === "A" ? "B" : "A");
           return { ...state, savedSets: [saved, ...state.savedSets], setsWonA: nextSetsWonA, setsWonB: nextSetsWonB, setNumber: state.setNumber + 1, ...after as any, toast: makeToast(`Set ${state.setNumber} finished.`, "info") };
         }),
 
         logEvent: ({ teamId, slot, skill, outcome }) => set((state) => {
-          // Check Match Over
           const setsNeeded = Math.ceil(state.setRules.bestOf / 2);
           if (state.setsWonA >= setsNeeded || state.setsWonB >= setsNeeded) {
               return { ...state, toast: makeToast("Match ended. No more events allowed.", "warn") };
@@ -562,20 +554,17 @@ export const useMatchStore = create<MatchStore>()(
             prevLiberoSwapA: state.liberoSwapA, prevLiberoSwapB: state.liberoSwapB, prevRallyCount: state.rallyCount, prevRallyInProgress: state.rallyInProgress,
             prevServiceRunTeam: state.serviceRunTeam, prevServiceRunCount: state.serviceRunCount, didSideoutRotate: false, skillKey, outcomeKey,
             prevSubsUsedA: state.subsUsedA, prevSubsUsedB: state.subsUsedB, prevActiveSubsA: state.activeSubsA, prevActiveSubsB: state.activeSubsB,
-            // Capture Set State for potential "Undo Set End"
             prevSetNumber: state.setNumber, prevSetsWonA: state.setsWonA, prevSetsWonB: state.setsWonB
           };
           return { events: [e, ...state.events], toast: makeToast("Stat recorded.", "info") };
         }),
 
         undoLastEvent: () => set((state) => {
-          // ✅ CROSS-SET UNDO LOGIC
           if (state.events.length === 0 && state.savedSets.length > 0) {
-             const lastSet = state.savedSets[0]; // savedSets is ordered newest first
+             const lastSet = state.savedSets[0];
              const remainingSaved = state.savedSets.slice(1);
-             const restoredEvents = [...lastSet.events].reverse(); // events in savedSet are chronologically sorted, we need stack order (newest first)
+             const restoredEvents = [...lastSet.events].reverse();
              
-             // Restore State from the MOMENT the set ended
              return {
                  ...state,
                  savedSets: remainingSaved,
@@ -585,9 +574,6 @@ export const useMatchStore = create<MatchStore>()(
                  setsWonA: lastSet.winner === "A" ? state.setsWonA - 1 : state.setsWonA,
                  setsWonB: lastSet.winner === "B" ? state.setsWonB - 1 : state.setsWonB,
                  events: restoredEvents,
-                 // NOTE: We ideally need the court state from the last event. 
-                 // The standard undo below will handle restoring court state once the last event is "popped".
-                 // But we need to put the system in a state where "Undo" is clickable again.
                  toast: makeToast(`Set ${lastSet.setNumber} Re-opened. Undo again to remove point.`, "info")
              };
           }
@@ -608,6 +594,33 @@ export const useMatchStore = create<MatchStore>()(
           return { ...state };
         }),
 
+        // ✅ RE-ADDED: Undo from specific event
+        undoFromEvent: (eventId: string) => set((state) => {
+            const index = state.events.findIndex(e => e.id === eventId);
+            if (index === -1) return state;
+            const targetEvent = state.events[index];
+            return {
+                ...state,
+                scoreA: targetEvent.prevScoreA,
+                scoreB: targetEvent.prevScoreB,
+                servingTeam: targetEvent.prevServingTeam,
+                courtA: targetEvent.prevCourtA,
+                courtB: targetEvent.prevCourtB,
+                liberoSwapA: targetEvent.prevLiberoSwapA,
+                liberoSwapB: targetEvent.prevLiberoSwapB,
+                rallyCount: targetEvent.prevRallyCount,
+                rallyInProgress: targetEvent.prevRallyInProgress,
+                serviceRunTeam: targetEvent.prevServiceRunTeam,
+                serviceRunCount: targetEvent.prevServiceRunCount,
+                subsUsedA: targetEvent.prevSubsUsedA,
+                subsUsedB: targetEvent.prevSubsUsedB,
+                activeSubsA: targetEvent.prevActiveSubsA,
+                activeSubsB: targetEvent.prevActiveSubsB,
+                events: state.events.slice(index + 1),
+                toast: makeToast("Restored match state.", "info")
+            };
+        }),
+
         resetCourt: (teamId) => set((state) => { 
             if (teamId === "A") return { ...state, courtA: emptyCourt(), liberoSwapA: defaultLiberoSwap(), subsUsedA: 0, activeSubsA: {} }; 
             return { ...state, courtB: emptyCourt(), liberoSwapB: defaultLiberoSwap(), subsUsedB: 0, activeSubsB: {} }; 
@@ -618,7 +631,6 @@ export const useMatchStore = create<MatchStore>()(
         manualSetSets: (teamId, sets) => set((state) => ({ ...state, setsWonA: teamId === "A" ? sets : state.setsWonA, setsWonB: teamId === "B" ? sets : state.setsWonB })),
 
         incrementScore: (teamId: TeamId) => set((state) => {
-          // 1. Check Match Over First
           const setsNeeded = Math.ceil(state.setRules.bestOf / 2);
           if (state.setsWonA >= setsNeeded || state.setsWonB >= setsNeeded) {
               return { ...state, toast: makeToast("Match is over.", "warn") };
@@ -631,7 +643,6 @@ export const useMatchStore = create<MatchStore>()(
           
           if (teamId === "A") nextScoreA++; else nextScoreB++;
           
-          // Logic: Rotate on Sideout
           if (teamId !== servingTeam) {
             nextServingTeam = teamId;
             const isLeft = state.leftTeam === teamId;
@@ -642,7 +653,6 @@ export const useMatchStore = create<MatchStore>()(
             const appliedL = applyLiberoAutomation({ teamId: opp, court: opp === "A" ? nextCourtA : nextCourtB, players, config: getConfig(state, opp), swap: getSwap(state, opp), servingTeam: nextServingTeam });
             if (opp === "A") { nextCourtA = appliedL.court; nextSwapA = appliedL.swap; } else { nextCourtB = appliedL.court; nextSwapB = appliedL.swap; }
           } else {
-             // Logic: Swap Libero if Dual Mode (Even if no rotation)
              const applied = applyLiberoAutomation({ teamId, court: teamId === "A" ? nextCourtA : nextCourtB, players, config: getConfig(state, teamId), swap: getSwap(state, teamId), servingTeam: nextServingTeam });
              if (teamId === "A") { nextCourtA = applied.court; nextSwapA = applied.swap; } else { nextCourtB = applied.court; nextSwapB = applied.swap; }
              const opp = opponentOf(teamId);
@@ -657,16 +667,10 @@ export const useMatchStore = create<MatchStore>()(
           const winner = hasSetWinner(nextScoreA, nextScoreB, pointsToWin, state.setRules.winBy);
           
           if (winner) {
-             // We need to call endSet, but since we are inside a setState, we can't call get().endSet() immediately on the new state easily.
-             // We will manually invoke the endSet logic on the newState.
-             // Or, simply update the score, and assume the UI or next action triggers it? NO, user wants AUTO.
-             
-             // Construct the SavedSet immediately
              const saved = buildSavedSet({ setNumber: state.setNumber, pointsToWin, winner, finalScoreA: nextScoreA, finalScoreB: nextScoreB, events: state.events.slice().reverse(), players: state.players });
              const nextSetsWonA = winner === "A" ? state.setsWonA + 1 : state.setsWonA;
              const nextSetsWonB = winner === "B" ? state.setsWonB + 1 : state.setsWonB;
              
-             // Check Match Over inside this atomic update
              const matchOver = nextSetsWonA >= setsNeeded || nextSetsWonB >= setsNeeded;
              if (matchOver) {
                  return { ...newState, savedSets: [saved, ...state.savedSets], setsWonA: nextSetsWonA, setsWonB: nextSetsWonB, events: [], toast: makeToast(`Match Over! Winner: Team ${winner}`, "info") };
@@ -694,7 +698,7 @@ export const useMatchStore = create<MatchStore>()(
     },
     {
       name: "vb-match-store",
-      version: 25, // Incremented version
+      version: 26, // Version Bump
       migrate: (persisted: any) => ({
         ...persisted,
         trackerMode: persisted?.trackerMode || "FULL",
