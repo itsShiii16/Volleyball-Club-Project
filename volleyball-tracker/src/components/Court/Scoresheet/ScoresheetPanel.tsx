@@ -104,7 +104,6 @@ function buttonsForContext(
   const dig: Btn[] = [
     { skill: "DIG", outcome: "PERFECT", label: "Perfect", short: "Exc" },
     { skill: "DIG", outcome: "SUCCESS", label: "Up / In Play", short: "Up" },
-    { skill: "DIG", outcome: "SLASH", label: "Slash / Over", short: "Slash" },
     { skill: "DIG", outcome: "ERROR", label: "Error / Kill", short: "Err" },
   ];
 
@@ -220,7 +219,7 @@ export default function ScoresheetPanel() {
           btns = [];
       }
     } else if (rallyState === "IN_RALLY") {
-      // ✅ NEW: Attack Flow Control
+      // Attack Flow Control
       const lastEvent = events.length > 0 ? events[0] : null;
       if (lastEvent && (lastEvent.skill === "SPIKE" || lastEvent.skill === "ATTACK") && 
          (lastEvent.outcome === "SUCCESS" || lastEvent.outcome === "IN_PLAY")) {

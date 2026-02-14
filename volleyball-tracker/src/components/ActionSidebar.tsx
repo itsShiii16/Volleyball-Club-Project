@@ -87,11 +87,10 @@ function buttonsForContext(
     { skill: "RECEIVE", outcome: "ERROR", label: "Error", short: "Err" },
   ];
 
-  // 2. Digs
+  // 2. Digs (Removed SLASH as requested)
   const dig: Btn[] = [
     { skill: "DIG", outcome: "PERFECT", label: "Perfect", short: "Exc" },
     { skill: "DIG", outcome: "SUCCESS", label: "Up / In Play", short: "Up" },
-    { skill: "DIG", outcome: "SLASH", label: "Slash / Over", short: "Slash" },
     { skill: "DIG", outcome: "ERROR", label: "Error / Kill", short: "Err" },
   ];
 
@@ -210,22 +209,17 @@ export default function ActionSidebar() {
           btns = [];
       }
     } else if (rallyState === "IN_RALLY") {
-      // ✅ NEW: Attack Flow Control
+      // Attack Flow Control: If opponent attacked and it's In Play, only show DIG.
       const lastEvent = events.length > 0 ? events[0] : null;
-      
-      // Check if last event was an Attack that stayed in play
       if (lastEvent && (lastEvent.skill === "SPIKE" || lastEvent.skill === "ATTACK") && 
          (lastEvent.outcome === "SUCCESS" || lastEvent.outcome === "IN_PLAY")) {
           
           if (teamId !== lastEvent.teamId) {
-              // Opponent side: Must DIG
               btns = btns.filter(b => b.skill === "DIG");
           } else {
-              // Attacking side: Wait (ball is over)
               btns = [];
           }
       } else {
-          // Standard rally: Allow everything except serve/receive
           btns = btns.filter((b) => b.skill !== "SERVE" && b.skill !== "RECEIVE");
       }
     }
