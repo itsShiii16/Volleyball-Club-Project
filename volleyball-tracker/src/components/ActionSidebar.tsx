@@ -40,15 +40,31 @@ function getOutcomeTheme(outcome: string) {
       badge: "bg-red-100 text-red-800 border-red-200"
     };
   }
-  // GREEN: Points / Perfect
-  if (u.includes("KILL") || u.includes("ACE") || u.includes("POINT") || u.includes("PERFECT") || u.includes("EXCELLENT")) {
+  // GREEN: Points / Perfect / Kill (Clean)
+  if ((u.includes("KILL") && !u.includes("FORCED")) || (u.includes("ACE") && !u.includes("FORCED")) || u.includes("POINT") || u.includes("PERFECT")) {
     return {
       btn: "bg-emerald-50 border-emerald-200 text-emerald-900 hover:bg-emerald-100 hover:border-emerald-300",
       dot: "bg-emerald-500",
       badge: "bg-emerald-100 text-emerald-800 border-emerald-200"
     };
   }
-  // YELLOW: Continuation / Attempts
+  // ORANGE: Slash / Overpass (Warning)
+  if (u.includes("SLASH") || u.includes("OVERPASS") || u.includes("BLOCKED")) {
+    return {
+      btn: "bg-orange-50 border-orange-200 text-orange-900 hover:bg-orange-100 hover:border-orange-300",
+      dot: "bg-orange-500",
+      badge: "bg-orange-100 text-orange-800 border-orange-200"
+    };
+  }
+  // PURPLE: Forced Errors
+  if (u.includes("FORCED")) {
+    return {
+      btn: "bg-purple-50 border-purple-200 text-purple-900 hover:bg-purple-100 hover:border-purple-300",
+      dot: "bg-purple-500",
+      badge: "bg-purple-100 text-purple-800 border-purple-200"
+    };
+  }
+  // YELLOW: Continuation / In Play / Touch
   return {
     btn: "bg-amber-50 border-amber-200 text-amber-900 hover:bg-amber-100 hover:border-amber-300",
     dot: "bg-amber-500",
@@ -73,12 +89,13 @@ function buttonsForContext(
 
   // 2. Digs
   const dig: Btn[] = [
-    { skill: "DIG", outcome: "PERFECT", label: "Excellent", short: "Exc" },
-    { skill: "DIG", outcome: "SUCCESS", label: "Attempt", short: "Att" },
-    { skill: "DIG", outcome: "ERROR", label: "Error", short: "Err" },
+    { skill: "DIG", outcome: "PERFECT", label: "Perfect", short: "Exc" },
+    { skill: "DIG", outcome: "SUCCESS", label: "Up / In Play", short: "Up" },
+    { skill: "DIG", outcome: "SLASH", label: "Slash / Over", short: "Slash" },
+    { skill: "DIG", outcome: "ERROR", label: "Error / Kill", short: "Err" },
   ];
 
-  // 3. Setting (VISIBLE ONLY FOR SETTERS)
+  // 3. Setting
   const setBtns: Btn[] = isSetter ? [
     { skill: "SET", outcome: "PERFECT", label: "Excellent", short: "Exc" },
     { skill: "SET", outcome: "SUCCESS", label: "Running", short: "Run" },
@@ -88,19 +105,23 @@ function buttonsForContext(
   // 4. Blocking
   const block: Btn[] = [
     { skill: "BLOCK", outcome: "POINT", label: "Kill Block", short: "Kill" },
-    { skill: "BLOCK", outcome: "ERROR", label: "Error", short: "Err" },
+    { skill: "BLOCK", outcome: "TOUCH", label: "Touch / Soft", short: "Tch" },
+    { skill: "BLOCK", outcome: "ERROR", label: "Net / Tool", short: "Err" },
   ];
   
   // 5. Attacking
   const attack: Btn[] = [
-    { skill: "SPIKE", outcome: "KILL", label: "Kill", short: "Kill" },
-    { skill: "SPIKE", outcome: "SUCCESS", label: "Attempt", short: "Att" },
-    { skill: "SPIKE", outcome: "ERROR", label: "Error", short: "Err" },
+    { skill: "SPIKE", outcome: "KILL", label: "Kill (Clean)", short: "Kill" },
+    { skill: "SPIKE", outcome: "KILL_FORCED", label: "Kill (Forced)", short: "Tool" },
+    { skill: "SPIKE", outcome: "SUCCESS", label: "Dug / In Play", short: "Dig" },
+    { skill: "SPIKE", outcome: "BLOCKED", label: "Got Blocked", short: "Blk" },
+    { skill: "SPIKE", outcome: "ERROR", label: "Out / Net", short: "Err" },
   ];
 
   // 6. Serving
-  const serve: Btn[] = opts.isServingPlayer ? [
-    { skill: "SERVE", outcome: "ACE", label: "Ace", short: "Ace" },
+  const serve: Btn[] = opts.isServingTeam ? [
+    { skill: "SERVE", outcome: "ACE", label: "Ace (Clean)", short: "Ace" },
+    { skill: "SERVE", outcome: "ACE_FORCED", label: "Ace (Error)", short: "Ace+" },
     { skill: "SERVE", outcome: "SUCCESS", label: "In Play", short: "In" },
     { skill: "SERVE", outcome: "ERROR", label: "Error", short: "Err" },
   ] : [];
@@ -126,6 +147,8 @@ export default function ActionSidebar() {
   
   const servingTeam = useMatchStore((s) => s.servingTeam);
   const leftTeam = useMatchStore((s) => s.leftTeam);
+  const currentlyServing = useMatchStore((s) => s.currentlyServing);
+  const rallyState = useMatchStore((s) => s.rallyState);
   
   const currentScoreA = useMatchStore((s) => s.scoreA);
   const currentScoreB = useMatchStore((s) => s.scoreB);
@@ -141,14 +164,71 @@ export default function ActionSidebar() {
 
     const frontRow = isFrontRowSlot(slot);
     const libero = isLiberoPosition(player.position);
-    const isSetter = isSetterPosition(player.position); // ✅ Check if player is Setter
+    const isSetter = isSetterPosition(player.position); 
     const isServingTeam = (teamId === servingTeam);
-    const servingSlot = teamId === leftTeam ? 1 : 5;
+    
+    // Dynamic serving slot
+    const isLeftTeam = teamId === leftTeam;
+    const servingSlot = isLeftTeam ? 1 : 5;
     const isServingPlayer = isServingTeam && slot === servingSlot;
 
-    const btns = buttonsForContext(player.position, { 
+    let btns = buttonsForContext(player.position, { 
       frontRow, libero, isServingTeam, isServingPlayer 
     });
+
+    // FSM filtering rules
+    if (currentlyServing && currentlyServing === teamId) {
+      btns = btns.filter((b) => b.skill === "SERVE");
+    } else if (rallyState === "PRE_RALLY") {
+      if (servingTeam === teamId) btns = btns.filter((b) => b.skill === "SERVE");
+      else btns = [];
+    } else if (rallyState === "AWAIT_RECEIVE") {
+      if (servingTeam !== teamId) btns = btns.filter((b) => b.skill === "RECEIVE");
+      else btns = [];
+    } else if (rallyState === "AWAIT_BLOCK") {
+      const lastEvent = events.length > 0 ? events[0] : null;
+      if (lastEvent && lastEvent.teamId !== teamId) {
+          if (frontRow) {
+             btns = btns.filter((b) => b.skill === "BLOCK");
+          } else {
+             btns = [];
+          }
+      } else {
+          btns = [];
+      }
+    } else if (rallyState === "AWAIT_ERROR") {
+      const lastEvent = events.length > 0 ? events[0] : null;
+      if (lastEvent && lastEvent.teamId !== teamId) {
+          if (lastEvent.skill === "SPIKE" || lastEvent.skill === "ATTACK") {
+             btns = btns.filter(b => b.skill === "DIG" && b.outcome.includes("ERROR"));
+          } else if (lastEvent.skill === "SERVE") {
+             btns = btns.filter(b => b.skill === "RECEIVE" && b.outcome.includes("ERROR"));
+          } else {
+             btns = btns.filter(b => b.skill === "DIG" && b.outcome.includes("ERROR"));
+          }
+      } else {
+          btns = [];
+      }
+    } else if (rallyState === "IN_RALLY") {
+      // ✅ NEW: Attack Flow Control
+      const lastEvent = events.length > 0 ? events[0] : null;
+      
+      // Check if last event was an Attack that stayed in play
+      if (lastEvent && (lastEvent.skill === "SPIKE" || lastEvent.skill === "ATTACK") && 
+         (lastEvent.outcome === "SUCCESS" || lastEvent.outcome === "IN_PLAY")) {
+          
+          if (teamId !== lastEvent.teamId) {
+              // Opponent side: Must DIG
+              btns = btns.filter(b => b.skill === "DIG");
+          } else {
+              // Attacking side: Wait (ball is over)
+              btns = [];
+          }
+      } else {
+          // Standard rally: Allow everything except serve/receive
+          btns = btns.filter((b) => b.skill !== "SERVE" && b.skill !== "RECEIVE");
+      }
+    }
     
     // ✅ Separate Groups for Each Skill
     const groups: Record<string, Btn[]> = {
@@ -166,7 +246,6 @@ export default function ActionSidebar() {
         if (groups[key]) groups[key].push(b);
     });
 
-    // ✅ CONDITIONAL ORDER: If Setter, put "SET" at the very top (after Serve if serving)
     const ORDER = isSetter 
         ? ["SET", "SERVE", "RECEIVE", "ATTACK", "BLOCK", "DIG"] 
         : ["SERVE", "RECEIVE", "SET", "ATTACK", "BLOCK", "DIG"];
@@ -179,7 +258,7 @@ export default function ActionSidebar() {
         }));
 
     return { teamId, slot, player, visibleGroups, frontRow };
-  }, [active, players, courtA, courtB, servingTeam, leftTeam]);
+  }, [active, players, courtA, courtB, servingTeam, leftTeam, currentlyServing, rallyState, events]);
 
   const historyGroups = useMemo(() => {
     const groups: { scoreLabel: string; isCurrent: boolean; events: typeof events }[] = [];
@@ -225,25 +304,37 @@ export default function ActionSidebar() {
                   #{info.player.jerseyNumber} <span className="text-xl font-bold text-gray-600">{info.player.name.split(" ")[0]}</span>
                 </h2>
             </div>
-            <button 
-              onClick={handleOpenSettings}
-              className="rounded-lg bg-gray-100 px-3 py-2 text-xs font-bold text-gray-600 hover:bg-gray-200 transition"
-            >
-              SUB ⚙️
-            </button>
+            <div className="flex items-center gap-2">
+              <button 
+                onClick={handleOpenSettings}
+                className="rounded-lg bg-gray-100 px-3 py-2 text-xs font-bold text-gray-600 hover:bg-gray-200 transition"
+              >
+                SUB ⚙️
+              </button>
+
+              <div className="flex flex-col items-end">
+                <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">State</div>
+                <div className={`text-[12px] font-mono px-2 py-1 rounded ${rallyState === "PRE_RALLY" ? "bg-gray-100 text-gray-800" : rallyState === "AWAIT_RECEIVE" ? "bg-yellow-100 text-yellow-800" : rallyState === "AWAIT_BLOCK" || rallyState === "AWAIT_ERROR" ? "bg-orange-100 text-orange-800" : "bg-emerald-100 text-emerald-800"}`}>
+                  {rallyState === "IN_RALLY" ? "RALLY" : rallyState === "AWAIT_RECEIVE" ? "RECEIVE" : rallyState === "AWAIT_BLOCK" ? "BLOCK?" : rallyState === "AWAIT_ERROR" ? "ERROR?" : "SERVE"}
+                </div>
+              </div>
+            </div>
         </div>
       </div>
 
-      {/* ✅ ACTION GRID - BIGGER BUTTONS (Preserved Layout) */}
+      {/* ACTION GRID */}
       <div className="flex-1 overflow-y-auto p-4 bg-gray-50/50 space-y-6">
         {info.visibleGroups.length === 0 ? (
            <div className="text-base font-medium text-gray-400 text-center py-10">
-             No actions available.
+             {rallyState === "AWAIT_BLOCK" && info.teamId === events[0]?.teamId 
+                ? "Attack Blocked. Switch to opponent to log the block!" 
+                : rallyState === "AWAIT_ERROR" && info.teamId === events[0]?.teamId
+                ? "Forced Error. Switch to opponent to log the error!"
+                : "No actions available."}
            </div>
         ) : (
           info.visibleGroups.map((group) => (
             <div key={group.title}>
-              {/* Category Header */}
               <div className="flex items-center gap-2 mb-3">
                  <span className="text-[11px] font-black text-gray-500 uppercase tracking-widest bg-gray-200 px-2 py-0.5 rounded">
                    {group.title}
@@ -251,7 +342,6 @@ export default function ActionSidebar() {
                  <div className="h-px bg-gray-200 flex-1" />
               </div>
 
-              {/* 2-Column Grid */}
               <div className="grid grid-cols-2 gap-3">
                 {group.btns.map((b, i) => {
                   const theme = getOutcomeTheme(b.outcome);
@@ -266,14 +356,11 @@ export default function ActionSidebar() {
                           outcome: b.outcome,
                         })
                       }
-                      // ✅ PRESERVED SIZE: py-4 px-2
                       className={`relative flex flex-col justify-center items-center py-4 px-2 rounded-xl border-2 shadow-sm transition-all active:scale-[0.96] ${theme.btn}`}
                     >
-                      {/* Outcome Label (Large) */}
                       <span className="font-black text-base uppercase leading-none text-center">
                         {b.label}
                       </span>
-                      {/* Status Dot */}
                       <div className={`absolute top-2 right-2 w-2 h-2 rounded-full ${theme.dot}`} />
                     </button>
                   );
@@ -284,7 +371,7 @@ export default function ActionSidebar() {
         )}
       </div>
 
-      {/* ✅ EVENT HISTORY LOG - PRESERVED STYLING */}
+      {/* EVENT HISTORY LOG */}
       <div className="border-t bg-white flex flex-col max-h-[35%] shrink-0">
         <div className="p-2 bg-gray-50 border-b text-[10px] font-bold uppercase text-gray-400 tracking-widest text-center">
           Event Log
@@ -303,16 +390,13 @@ export default function ActionSidebar() {
                 <div className="p-1.5 space-y-1.5">
                    {group.events.map((e) => {
                       const theme = getOutcomeTheme(e.outcome);
-                      // ✅ Find Player & Jersey
                       const p = players.find((x) => x.id === e.playerId);
                       const jersey = p ? p.jerseyNumber : "?";
 
-                      // ✅ Special rendering for SUBS (if present in log)
                       if (e.skillKey === "SUBSTITUTION") {
                           return (
                             <div key={e.id} className="flex items-center justify-between text-xs bg-gray-50 p-1.5 rounded border border-gray-200 shadow-sm">
                                <span className="text-[10px] font-bold text-gray-500 uppercase tracking-tight">Substitution</span>
-                               <span className="font-mono text-gray-400 text-[9px]">UNDOABLE</span>
                             </div>
                           );
                       }
@@ -320,14 +404,11 @@ export default function ActionSidebar() {
                       return (
                         <div key={e.id} className="flex items-center justify-between text-sm bg-white p-2 rounded border border-gray-200 shadow-sm">
                            <div className="flex items-center gap-3">
-                              {/* Jersey Number */}
-                              <span className="font-black text-gray-500 text-xs w-6 text-center bg-gray-100 rounded py-0.5">#{jersey}</span>
-                              {/* Skill Name */}
-                              <div className="font-extrabold text-gray-800 uppercase tracking-tight">
-                                  {e.skill.replace("SPIKE", "ATK").substring(0, 3)}
-                              </div>
+                             <span className="font-black text-gray-500 text-xs w-6 text-center bg-gray-100 rounded py-0.5">#{jersey}</span>
+                             <div className="font-extrabold text-gray-800 uppercase tracking-tight">
+                                 {e.skill.replace("SPIKE", "ATK").substring(0, 3)}
+                             </div>
                            </div>
-                           {/* Outcome Badge - Bold & Readable */}
                            <div className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wide border ${theme.badge}`}>
                               {e.outcome.replace("POINT", "KILL").replace("SUCCESS", "GOOD").replace("PERFECT", "EXC")}
                            </div>
