@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useRef } from "react"; // ✅ Added useRef
 import { useMatchStore } from "@/store/matchStore";
 import type { TeamId } from "@/lib/volleyball";
+import { toPng } from "html-to-image"; // ✅ Added html-to-image
 
 // --- HELPERS ---
 const fmtTime = (ts: number) =>
@@ -108,10 +109,29 @@ export default function MatchSummaryModal() {
   const players = useMatchStore((s) => s.players);
   const events = useMatchStore((s) => s.events);
   const importEvents = useMatchStore((s) => s.importEvents);
+
+  const summaryRef = useRef<HTMLDivElement>(null); // ✅ Added Ref for capture
   
   const [viewMode, setViewMode] = useState<"sheet" | "rankings" | "roles">("sheet");
   const [sheetTab, setSheetTab] = useState<TeamId>("A");
   const [filterSetId, setFilterSetId] = useState<string | "ALL">("ALL");
+
+  // ✅ HANDLER: Export Summary as Image
+  const handleExportPhoto = async () => {
+    if (summaryRef.current === null) return;
+    try {
+      const dataUrl = await toPng(summaryRef.current, { 
+        cacheBust: true,
+        backgroundColor: "#ffffff" 
+      });
+      const link = document.createElement("a");
+      link.download = `match-summary-${Date.now()}.png`;
+      link.href = dataUrl;
+      link.click();
+    } catch (err) {
+      console.error("Failed to export image", err);
+    }
+  };
 
   // ✅ Multi-Device Sync Handlers
   const handleExportForPartner = () => {
@@ -194,7 +214,6 @@ export default function MatchSummaryModal() {
     const totalsPog: Record<string, number> = {};
     const setsPlayedMap: Record<string, number> = {};
 
-    // POG points calculation (Syncs with partner data after import)
     for (const set of filteredSets) {
       const activeIds = new Set<string>();
       if (set.perPlayer) { for (const [pid, data] of Object.entries(set.perPlayer)) { totalsPog[pid] = (totalsPog[pid] ?? 0) + Number(data?.pogPoints ?? 0); activeIds.add(pid); } }
@@ -286,20 +305,24 @@ export default function MatchSummaryModal() {
 
                 <div className="w-px h-6 bg-gray-700 mx-1"></div>
                 
-                <button onClick={handleExportCSV} className="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-white font-bold transition text-xs flex items-center gap-1 shadow-sm"><span>📊</span> CSV</button>
+                {/* ✅ FEATURE: Export Photo Button */}
+                <button onClick={handleExportPhoto} className="px-3 py-2 bg-pink-600 hover:bg-pink-500 rounded-lg text-white font-bold transition text-xs flex items-center gap-1 shadow-sm"><span>📸</span> IMAGE</button>
+                
+                <button onClick={handleExportCSV} className="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-white font-bold transition text-xs flex items-center gap-1 shadow-sm"><span>📊</span> EXPORT CSV</button>
                 <button onClick={handleExportJSON} className="px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-white font-bold transition text-xs flex items-center gap-1 shadow-sm"><span>💾</span> JSON</button>
-                <button onClick={close} className="p-2 bg-white/10 hover:bg-white/20 rounded-lg text-white font-bold transition text-xs ml-2">✕ CLOSE</button>
+                <div className="w-px h-6 bg-gray-700 mx-1"></div>
+                <button onClick={close} className="p-2 bg-white/10 hover:bg-white/20 rounded-lg text-white font-bold transition text-xs">✕ CLOSE</button>
             </div>
           </div>
           <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-hide"><span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mr-2">Filter Stats:</span><button onClick={() => setFilterSetId("ALL")} className={`px-3 py-1.5 rounded-full text-xs font-bold transition border ${filterSetId === "ALL" ? "bg-white text-gray-900 border-white" : "bg-transparent text-gray-400 border-gray-700 hover:border-gray-500 hover:text-white"}`}>FULL MATCH</button>{sortedSets.map(s => (<button key={s.id} onClick={() => setFilterSetId(s.id)} className={`px-3 py-1.5 rounded-full text-xs font-bold transition border whitespace-nowrap ${filterSetId === s.id ? "bg-white text-gray-900 border-white" : "bg-transparent text-gray-400 border-gray-700 hover:border-gray-500 hover:text-white"}`}>SET {s.setNumber}</button>))}</div>
         </div>
 
-        {/* CONTENT */}
-        <div className="flex-1 overflow-hidden bg-white flex flex-col">
+        {/* CONTENT (Ref added here to capture everything below header) */}
+        <div ref={summaryRef} className="flex-1 overflow-hidden bg-white flex flex-col">
           
           {/* 1. RESULT SHEET */}
           {viewMode === "sheet" && (
-            <div className="flex flex-col h-full">
+            <div className="flex flex-col h-full text-gray-900">
               <div className="shrink-0 flex border-b bg-gray-100">
                   <button onClick={() => setSheetTab("A")} className={`flex-1 py-3 text-sm font-black uppercase tracking-wider ${sheetTab === "A" ? "text-blue-700 border-b-4 border-blue-600 bg-blue-50" : "text-gray-500 hover:bg-gray-200"}`}>Team A</button>
                   <button onClick={() => setSheetTab("B")} className={`flex-1 py-3 text-sm font-black uppercase tracking-wider ${sheetTab === "B" ? "text-red-700 border-b-4 border-red-600 bg-red-50" : "text-gray-500 hover:bg-gray-200"}`}>Team B</button>
@@ -387,15 +410,15 @@ export default function MatchSummaryModal() {
             </div>
           )}
 
-          {/* 2. RANKINGS (With POG Details) */}
+          {/* 2. RANKINGS */}
           {viewMode === "rankings" && (
-            <div className="flex-1 overflow-auto p-4 lg:p-8 bg-gray-50 space-y-8">
+            <div className="flex-1 overflow-auto p-4 lg:p-8 bg-gray-50 space-y-8 text-gray-900">
               <div className="rounded-xl bg-white border border-gray-200 p-6 shadow-sm">
-                  <div className="font-black text-sm mb-4 text-gray-400 uppercase tracking-widest">Match History</div>
+                  <div className="font-black text-sm mb-4 text-gray-400 uppercase tracking-widest text-gray-900">Match History</div>
                   {savedSets.length === 0 ? <div className="text-sm text-gray-400 italic">No saved sets yet.</div> : (
                     <div className="flex flex-col gap-3">
                       {sortedSets.map(s => (
-                        <div key={s.id} className="flex items-center justify-between p-4 rounded-lg bg-gray-50 border">
+                        <div key={s.id} className="flex items-center justify-between p-4 rounded-lg bg-gray-50 border text-gray-900">
                           <div><div className="font-black text-gray-900">Set {s.setNumber}</div><div className="text-xs text-gray-500">{fmtTime(s.ts)}</div></div>
                           <div className="text-right"><div className="font-black text-xl">{s.finalScoreA} - {s.finalScoreB}</div><div className="text-[10px] font-bold uppercase text-gray-400">Winner: Team {s.winner}</div></div>
                         </div>
@@ -406,12 +429,12 @@ export default function MatchSummaryModal() {
 
               <div className="grid grid-cols-1 xl:grid-cols-[1.5fr_1fr] gap-6">
                  {rankingsData.pog && pogStatsRow ? (
-                    <div className="rounded-xl bg-gradient-to-br from-yellow-50 to-white border border-yellow-200 p-6 shadow-sm">
-                       <div className="flex justify-between items-start mb-6">
+                    <div className="rounded-xl bg-gradient-to-br from-yellow-50 to-white border border-yellow-200 p-6 shadow-sm text-gray-900">
+                       <div className="flex justify-between items-start mb-6 text-gray-900">
                            <div>
-                               <div className="text-xs font-bold uppercase text-yellow-600 mb-1">{filterSetId === "ALL" ? "Player of the Game" : `Top Performer (Set ${savedSets.find(s=>s.id === filterSetId)?.setNumber})`}</div>
+                               <div className="text-xs font-bold uppercase text-yellow-600 mb-1">{filterSetId === "ALL" ? "Player of the Game" : `Top Performer`}</div>
                                <div className="text-3xl font-black text-gray-900">#{rankingsData.pog.jersey} {rankingsData.pog.name}</div>
-                               <div className="text-sm text-gray-500 font-bold mt-1">Team {rankingsData.pog.teamId} • {rankingsData.pog.position} • {rankingsData.pog.setsPlayed} Sets Played</div>
+                               <div className="text-sm text-gray-500 font-bold mt-1">Team {rankingsData.pog.teamId} • {rankingsData.pog.position}</div>
                            </div>
                            <div className="text-right">
                                <div className="text-5xl font-black text-yellow-500">{rankingsData.pog.pogPoints.toFixed(1)}</div>
@@ -430,25 +453,18 @@ export default function MatchSummaryModal() {
                                          <tr className="font-black text-gray-800 text-lg">
                                              <td className="p-3 border-r border-yellow-100">{calcEff(pogStatsRow.stats.receive.exc, pogStatsRow.stats.receive.error, pogStatsRow.stats.receive.total)}</td>
                                              <td className="p-3 border-r border-yellow-100">{calcEff(pogStatsRow.stats.dig.exc, pogStatsRow.stats.dig.error, pogStatsRow.stats.dig.total)}</td>
-                                             <td className="p-3 border-r border-yellow-100">{pogStatsRow.stats.receive.exc}</td>
-                                             <td className="p-3">{pogStatsRow.stats.dig.exc}</td>
+                                             <td className="p-3 border-r border-yellow-100">{pogStatsRow.stats.receive.exc}</td><td className="p-3">{pogStatsRow.stats.dig.exc}</td>
                                          </tr>
                                      </tbody>
                                    </>
                                ) : bucketFromPosition(rankingsData.pog.position) === "S" ? (
                                    <>
                                      <thead className="bg-yellow-100/50 text-gray-600 font-bold uppercase text-[10px]">
-                                         <tr><th className="p-2 border-r border-yellow-200">Exc Sets</th><th className="p-2 border-r border-yellow-200">Run Sets</th><th className="p-2 border-r border-yellow-200">Pts</th><th className="p-2 border-r border-yellow-200">Attack</th><th className="p-2 border-r border-yellow-200">Blocks</th><th className="p-2 border-r border-yellow-200">Ace</th><th className="p-2">Digs</th></tr>
+                                         <tr><th className="p-2 border-r border-yellow-200">Exc Sets</th><th className="p-2 border-r border-yellow-200">Run Sets</th><th className="p-2 border-r border-yellow-200">Pts</th><th className="p-2 border-r border-yellow-200">Atk</th><th className="p-2 border-r border-yellow-200">Blk</th><th className="p-2 border-r border-yellow-200">Ace</th><th className="p-2">Digs</th></tr>
                                      </thead>
                                      <tbody>
                                          <tr className="font-black text-gray-800 text-lg">
-                                             <td className="p-3 border-r border-yellow-100">{pogStatsRow.stats.set.exc}</td>
-                                             <td className="p-3 border-r border-yellow-100">{pogStatsRow.stats.set.running}</td>
-                                             <td className="p-3 border-r border-yellow-100">{pogStatsRow.stats.points}</td>
-                                             <td className="p-3 border-r border-yellow-100">{pogStatsRow.stats.spikes.won}</td>
-                                             <td className="p-3 border-r border-yellow-100">{pogStatsRow.stats.blocks.won}</td>
-                                             <td className="p-3 border-r border-yellow-100">{pogStatsRow.stats.serves.ace}</td>
-                                             <td className="p-3">{pogStatsRow.stats.dig.exc}</td>
+                                             <td className="p-3 border-r border-yellow-100">{pogStatsRow.stats.set.exc}</td><td className="p-3 border-r border-yellow-100">{pogStatsRow.stats.set.running}</td><td className="p-3 border-r border-yellow-100">{pogStatsRow.stats.points}</td><td className="p-3 border-r border-yellow-100">{pogStatsRow.stats.spikes.won}</td><td className="p-3 border-r border-yellow-100">{pogStatsRow.stats.blocks.won}</td><td className="p-3 border-r border-yellow-100">{pogStatsRow.stats.serves.ace}</td><td className="p-3">{pogStatsRow.stats.dig.exc}</td>
                                          </tr>
                                      </tbody>
                                    </>
@@ -459,12 +475,7 @@ export default function MatchSummaryModal() {
                                      </thead>
                                      <tbody>
                                          <tr className="font-black text-gray-800 text-lg">
-                                             <td className="p-3 border-r border-yellow-100">{pogStatsRow.stats.points}</td>
-                                             <td className="p-3 border-r border-yellow-100">{pogStatsRow.stats.spikes.won}</td>
-                                             <td className="p-3 border-r border-yellow-100">{pogStatsRow.stats.blocks.won}</td>
-                                             <td className="p-3 border-r border-yellow-100">{pogStatsRow.stats.serves.ace}</td>
-                                             <td className="p-3 border-r border-yellow-100">{pogStatsRow.stats.receive.exc}</td>
-                                             <td className="p-3">{pogStatsRow.stats.dig.exc}</td>
+                                             <td className="p-3 border-r border-yellow-100">{pogStatsRow.stats.points}</td><td className="p-3 border-r border-yellow-100">{pogStatsRow.stats.spikes.won}</td><td className="p-3 border-r border-yellow-100">{pogStatsRow.stats.blocks.won}</td><td className="p-3 border-r border-yellow-100">{pogStatsRow.stats.serves.ace}</td><td className="p-3 border-r border-yellow-100">{pogStatsRow.stats.receive.exc}</td><td className="p-3">{pogStatsRow.stats.dig.exc}</td>
                                          </tr>
                                      </tbody>
                                    </>
@@ -476,21 +487,21 @@ export default function MatchSummaryModal() {
                     <div className="text-center text-gray-400 py-10 border rounded-xl">No data for rankings.</div>
                  )}
 
-                 <div className="rounded-xl bg-white border border-gray-200 p-6 shadow-sm">
-                    <div className="font-black text-sm mb-4 text-gray-400 uppercase tracking-widest text-gray-900">Leaders By Position</div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                 <div className="rounded-xl bg-white border border-gray-200 p-6 shadow-sm text-gray-900">
+                    <div className="font-black text-sm mb-4 text-gray-400 uppercase tracking-widest">Leaders By Position</div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-gray-900">
                       {(["OH", "OPP", "S", "L", "MB"] as PosBucket[]).map((pos) => {
                         const list = rankingsData.byPosition[pos] ?? [];
                         return (
-                          <div key={pos} className="p-3 rounded-lg bg-gray-50 border">
+                          <div key={pos} className="p-3 rounded-lg bg-gray-50 border text-gray-900">
                             <div className="flex justify-between items-center mb-2 border-b pb-2">
                               <span className="font-bold text-xs text-gray-500">{pos}</span>
                               <span className="text-[10px] bg-gray-200 px-1.5 rounded-full text-gray-600">{list.length}</span>
                             </div>
                             {list.length === 0 ? <div className="text-[10px] text-gray-400 italic">None</div> : (
                               list.slice(0, 3).map((p) => (
-                                <div key={p.playerId} className="flex justify-between items-center text-sm py-0.5">
-                                  <span className="font-bold text-gray-800">#{p.jersey} {p.name.split(" ")[0]} <span className="text-gray-400 text-[10px]">({p.setsPlayed}s)</span></span>
+                                <div key={p.playerId} className="flex justify-between items-center text-sm py-0.5 text-gray-900">
+                                  <span className="font-bold text-gray-800">#{p.jersey} {p.name.split(" ")[0]}</span>
                                   <span className="font-mono font-bold text-blue-600">{p.pogPoints.toFixed(1)}</span>
                                 </div>
                               ))
@@ -506,11 +517,11 @@ export default function MatchSummaryModal() {
 
           {/* 3. ROLE STATS */}
           {viewMode === "roles" && (
-            <div className="flex-1 overflow-auto p-4 lg:p-8 bg-gray-50 space-y-8">
+            <div className="flex-1 overflow-auto p-4 lg:p-8 bg-gray-50 space-y-8 text-gray-900">
                <div>
                  <h3 className="font-black text-sm uppercase tracking-widest text-gray-500 mb-2 pl-1">Attacking Roles (OH, OPP, MB)</h3>
                  <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-x-auto text-gray-900">
-                    <table className="w-full text-center text-xs min-w-[900px]">
+                    <table className="w-full text-center text-xs min-w-[900px] text-gray-900">
                         <thead className="bg-gray-100 text-gray-700 font-bold uppercase tracking-wide border-b border-gray-200">
                             <tr>
                                 <th className="p-3 text-left">Player</th><th className="p-3">Pos</th>
@@ -521,9 +532,9 @@ export default function MatchSummaryModal() {
                                 <th className="p-3 bg-orange-50/50 border-l border-gray-100">Rec Exc</th><th className="p-3 bg-orange-50/50 text-red-700">Rec Err</th>
                             </tr>
                         </thead>
-                        <tbody className="divide-y divide-gray-100">
+                        <tbody className="divide-y divide-gray-100 text-gray-900">
                             {[...sheetData.rowsA, ...sheetData.rowsB].filter(r => ["OH","OPP","MB"].includes(bucketFromPosition(r.player.position))).map((r, i) => (
-                                <tr key={i} className="hover:bg-gray-50 transition-colors">
+                                <tr key={i} className="hover:bg-gray-50 transition-colors text-gray-900">
                                     <td className="p-3 text-left font-bold text-gray-900">#{r.player.jerseyNumber} {r.player.name}</td>
                                     <td className="p-3 text-[10px] font-bold text-gray-400 bg-gray-50">{bucketFromPosition(r.player.position)}</td>
                                     <td className="p-3 font-black bg-yellow-50 border-l border-r border-gray-100 text-blue-700 text-base">{r.stats.points}</td>
@@ -542,7 +553,7 @@ export default function MatchSummaryModal() {
                    <div>
                         <h3 className="font-black text-sm uppercase tracking-widest text-gray-500 mb-2 pl-1">Setters</h3>
                         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-x-auto">
-                            <table className="w-full text-center text-xs min-w-[600px]">
+                            <table className="w-full text-center text-xs min-w-[600px] text-gray-900">
                                 <thead className="bg-gray-100 text-gray-700 font-bold uppercase tracking-wide border-b border-gray-200">
                                     <tr>
                                         <th className="p-3 text-left">Player</th>
@@ -551,9 +562,9 @@ export default function MatchSummaryModal() {
                                         <th className="p-3">Atk</th><th className="p-3">Blk</th><th className="p-3">Ace</th><th className="p-3">Dig</th>
                                     </tr>
                                 </thead>
-                                <tbody className="divide-y divide-gray-100">
+                                <tbody className="divide-y divide-gray-100 text-gray-900">
                                     {[...sheetData.rowsA, ...sheetData.rowsB].filter(r => bucketFromPosition(r.player.position) === "S").map((r, i) => (
-                                        <tr key={i} className="hover:bg-gray-50 transition-colors">
+                                        <tr key={i} className="hover:bg-gray-50 transition-colors text-gray-900">
                                             <td className="p-3 text-left font-bold text-gray-900">#{r.player.jerseyNumber} {r.player.name}</td>
                                             <td className="p-3 font-bold text-green-600 bg-gray-50">{r.stats.set.exc}</td>
                                             <td className="p-3 font-bold text-blue-600 bg-gray-50">{r.stats.set.running}</td>
@@ -572,17 +583,17 @@ export default function MatchSummaryModal() {
                    <div>
                         <h3 className="font-black text-sm uppercase tracking-widest text-gray-500 mb-2 pl-1">Liberos</h3>
                         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-x-auto">
-                            <table className="w-full text-center text-xs min-w-[600px]">
-                                <thead className="bg-gray-100 text-gray-700 font-bold uppercase tracking-wide border-b border-gray-200">
+                            <table className="w-full text-center text-xs min-w-[600px] text-gray-900">
+                                <thead className="bg-gray-100 text-gray-700 font-bold uppercase tracking-wide border-b border-gray-200 text-gray-900">
                                     <tr>
                                         <th className="p-3 text-left">Player</th>
-                                        <th className="p-3 bg-orange-50 border-l border-gray-200">Rec Eff</th><th className="p-3 bg-orange-50">Exc</th><th className="p-3 bg-orange-50 text-red-600">Err</th>
-                                        <th className="p-3 bg-blue-50 border-l border-gray-200">Dig Eff</th><th className="p-3 bg-blue-50">Exc</th><th className="p-3 bg-blue-50 text-red-600">Err</th>
+                                        <th className="p-3 bg-orange-50 border-l border-gray-200 text-gray-900">Rec Eff</th><th className="p-3 bg-orange-50 text-gray-900">Exc</th><th className="p-3 bg-orange-50 text-red-600">Err</th>
+                                        <th className="p-3 bg-blue-50 border-l border-gray-200 text-gray-900">Dig Eff</th><th className="p-3 bg-blue-50 text-gray-900">Exc</th><th className="p-3 bg-blue-50 text-red-600">Err</th>
                                     </tr>
                                 </thead>
-                                <tbody className="divide-y divide-gray-100">
+                                <tbody className="divide-y divide-gray-100 text-gray-900">
                                     {[...sheetData.rowsA, ...sheetData.rowsB].filter(r => bucketFromPosition(r.player.position) === "L").map((r, i) => (
-                                        <tr key={i} className="hover:bg-gray-50 transition-colors">
+                                        <tr key={i} className="hover:bg-gray-50 transition-colors text-gray-900">
                                             <td className="p-3 text-left font-bold text-gray-900">#{r.player.jerseyNumber} {r.player.name}</td>
                                             <td className="p-3 font-black text-orange-700 border-l border-gray-100 bg-orange-50/30">{calcEff(r.stats.receive.exc, r.stats.receive.error, r.stats.receive.total)}</td>
                                             <td className="p-3 text-green-600 font-bold">{r.stats.receive.exc}</td>
@@ -599,7 +610,6 @@ export default function MatchSummaryModal() {
                </div>
             </div>
           )}
-
         </div>
       </div>
     </div>
