@@ -29,10 +29,8 @@ function isMiddlePosition(pos: string) {
   return p === "MB" || p === "MIDDLE" || p === "MIDDLE_BLOCKER";
 }
 
-// ✅ VISUAL THEME HELPER
 function getOutcomeTheme(outcome: string) {
   const u = outcome.toUpperCase();
-  // RED: Errors
   if (u.includes("ERROR") || u.includes("FAULT") || u.includes("OUT") || u.includes("NET")) {
     return {
       btn: "bg-red-50 border-red-200 text-red-900 hover:bg-red-100 hover:border-red-300",
@@ -40,7 +38,6 @@ function getOutcomeTheme(outcome: string) {
       badge: "bg-red-100 text-red-800 border-red-200"
     };
   }
-  // GREEN: Points / Perfect
   if (u.includes("KILL") || u.includes("ACE") || u.includes("POINT") || u.includes("PERFECT") || u.includes("EXCELLENT")) {
     return {
       btn: "bg-emerald-50 border-emerald-200 text-emerald-900 hover:bg-emerald-100 hover:border-emerald-300",
@@ -48,7 +45,6 @@ function getOutcomeTheme(outcome: string) {
       badge: "bg-emerald-100 text-emerald-800 border-emerald-200"
     };
   }
-  // YELLOW: Continuation / Attempts
   return {
     btn: "bg-amber-50 border-amber-200 text-amber-900 hover:bg-amber-100 hover:border-amber-300",
     dot: "bg-amber-500",
@@ -56,7 +52,6 @@ function getOutcomeTheme(outcome: string) {
   };
 }
 
-// ✅ BUTTON GENERATOR
 function buttonsForContext(
   pos: string,
   opts: { frontRow: boolean; libero: boolean; isServingTeam: boolean; isServingPlayer: boolean; }
@@ -64,48 +59,41 @@ function buttonsForContext(
   const p = normPos(pos);
   const isSetter = isSetterPosition(p);
 
-  // 1. Reception
   const receive: Btn[] = opts.isServingTeam ? [] : [
     { skill: "RECEIVE", outcome: "PERFECT", label: "Excellent", short: "Exc" },
     { skill: "RECEIVE", outcome: "SUCCESS", label: "Attempt", short: "Att" },
     { skill: "RECEIVE", outcome: "ERROR", label: "Error", short: "Err" },
   ];
 
-  // 2. Digs
   const dig: Btn[] = [
     { skill: "DIG", outcome: "PERFECT", label: "Excellent", short: "Exc" },
     { skill: "DIG", outcome: "SUCCESS", label: "Attempt", short: "Att" },
     { skill: "DIG", outcome: "ERROR", label: "Error", short: "Err" },
   ];
 
-  // 3. Setting (VISIBLE ONLY FOR SETTERS)
   const setBtns: Btn[] = isSetter ? [
     { skill: "SET", outcome: "PERFECT", label: "Excellent", short: "Exc" },
     { skill: "SET", outcome: "SUCCESS", label: "Running", short: "Run" },
     { skill: "SET", outcome: "ERROR", label: "Error", short: "Err" },
   ] : [];
 
-  // 4. Blocking
   const block: Btn[] = [
     { skill: "BLOCK", outcome: "POINT", label: "Kill Block", short: "Kill" },
     { skill: "BLOCK", outcome: "ERROR", label: "Error", short: "Err" },
   ];
   
-  // 5. Attacking
   const attack: Btn[] = [
     { skill: "SPIKE", outcome: "KILL", label: "Kill", short: "Kill" },
     { skill: "SPIKE", outcome: "SUCCESS", label: "Attempt", short: "Att" },
     { skill: "SPIKE", outcome: "ERROR", label: "Error", short: "Err" },
   ];
 
-  // 6. Serving
   const serve: Btn[] = opts.isServingPlayer ? [
     { skill: "SERVE", outcome: "ACE", label: "Ace", short: "Ace" },
     { skill: "SERVE", outcome: "SUCCESS", label: "In Play", short: "In" },
     { skill: "SERVE", outcome: "ERROR", label: "Error", short: "Err" },
   ] : [];
 
-  // --- ASSEMBLY ---
   if (opts.libero) return [...receive, ...dig, ...setBtns];
   if (isSetter) return [...serve, ...setBtns, ...receive, ...dig, ...(opts.frontRow ? block : []), ...attack];
   if (isMiddlePosition(p)) return [...serve, ...receive, ...dig, ...(opts.frontRow ? block : []), ...attack];
@@ -118,6 +106,7 @@ export default function ActionSidebar() {
   const closeScoresheet = useMatchStore((s) => s.closeScoresheet);
   const selectSlot = useMatchStore((s) => s.selectSlot);
   const logEvent = useMatchStore((s) => s.logEvent);
+  const trackerMode = useMatchStore((s) => s.trackerMode); // ✅ New selector
   
   const players = useMatchStore((s) => s.players);
   const courtA = useMatchStore((s) => s.courtA);
@@ -130,7 +119,6 @@ export default function ActionSidebar() {
   const currentScoreA = useMatchStore((s) => s.scoreA);
   const currentScoreB = useMatchStore((s) => s.scoreB);
 
-  // --- DATA PREPARATION ---
   const info = useMemo(() => {
     if (!active) return null;
     const { teamId, slot } = active;
@@ -141,7 +129,7 @@ export default function ActionSidebar() {
 
     const frontRow = isFrontRowSlot(slot);
     const libero = isLiberoPosition(player.position);
-    const isSetter = isSetterPosition(player.position); // ✅ Check if player is Setter
+    const isSetter = isSetterPosition(player.position);
     const isServingTeam = (teamId === servingTeam);
     const servingSlot = teamId === leftTeam ? 1 : 5;
     const isServingPlayer = isServingTeam && slot === servingSlot;
@@ -150,7 +138,6 @@ export default function ActionSidebar() {
       frontRow, libero, isServingTeam, isServingPlayer 
     });
     
-    // ✅ Separate Groups for Each Skill
     const groups: Record<string, Btn[]> = {
         "SERVE": [],
         "RECEIVE": [],
@@ -166,20 +153,28 @@ export default function ActionSidebar() {
         if (groups[key]) groups[key].push(b);
     });
 
-    // ✅ CONDITIONAL ORDER: If Setter, put "SET" at the very top (after Serve if serving)
     const ORDER = isSetter 
         ? ["SET", "SERVE", "RECEIVE", "ATTACK", "BLOCK", "DIG"] 
         : ["SERVE", "RECEIVE", "SET", "ATTACK", "BLOCK", "DIG"];
 
     const visibleGroups = ORDER
-        .filter(key => groups[key] && groups[key].length > 0)
+        .filter(key => {
+            // ✅ SPLIT MODE FILTERING LOGIC
+            if (trackerMode === "SCORING") {
+                return ["SERVE", "ATTACK", "BLOCK"].includes(key) && groups[key].length > 0;
+            }
+            if (trackerMode === "NON_SCORING") {
+                return ["RECEIVE", "SET", "DIG"].includes(key) && groups[key].length > 0;
+            }
+            return groups[key] && groups[key].length > 0;
+        })
         .map(key => ({
             title: key,
             btns: groups[key]
         }));
 
     return { teamId, slot, player, visibleGroups, frontRow };
-  }, [active, players, courtA, courtB, servingTeam, leftTeam]);
+  }, [active, players, courtA, courtB, servingTeam, leftTeam, trackerMode]); // ✅ Added trackerMode to dependencies
 
   const historyGroups = useMemo(() => {
     const groups: { scoreLabel: string; isCurrent: boolean; events: typeof events }[] = [];
@@ -214,7 +209,6 @@ export default function ActionSidebar() {
   return (
     <aside className="flex h-full w-full flex-col border-l border-gray-200 bg-white">
       
-      {/* HEADER */}
       <div className="border-b border-gray-100 p-4 bg-white z-10 shrink-0 shadow-sm">
         <div className="flex justify-between items-start">
             <div>
@@ -234,16 +228,16 @@ export default function ActionSidebar() {
         </div>
       </div>
 
-      {/* ✅ ACTION GRID - BIGGER BUTTONS (Preserved Layout) */}
       <div className="flex-1 overflow-y-auto p-4 bg-gray-50/50 space-y-6">
         {info.visibleGroups.length === 0 ? (
            <div className="text-base font-medium text-gray-400 text-center py-10">
-             No actions available.
+             {trackerMode !== "FULL" 
+               ? `No ${trackerMode.replace("_", " ").toLowerCase()} actions for this position.` 
+               : "No actions available."}
            </div>
         ) : (
           info.visibleGroups.map((group) => (
             <div key={group.title}>
-              {/* Category Header */}
               <div className="flex items-center gap-2 mb-3">
                  <span className="text-[11px] font-black text-gray-500 uppercase tracking-widest bg-gray-200 px-2 py-0.5 rounded">
                    {group.title}
@@ -251,7 +245,6 @@ export default function ActionSidebar() {
                  <div className="h-px bg-gray-200 flex-1" />
               </div>
 
-              {/* 2-Column Grid */}
               <div className="grid grid-cols-2 gap-3">
                 {group.btns.map((b, i) => {
                   const theme = getOutcomeTheme(b.outcome);
@@ -266,14 +259,11 @@ export default function ActionSidebar() {
                           outcome: b.outcome,
                         })
                       }
-                      // ✅ PRESERVED SIZE: py-4 px-2
                       className={`relative flex flex-col justify-center items-center py-4 px-2 rounded-xl border-2 shadow-sm transition-all active:scale-[0.96] ${theme.btn}`}
                     >
-                      {/* Outcome Label (Large) */}
                       <span className="font-black text-base uppercase leading-none text-center">
                         {b.label}
                       </span>
-                      {/* Status Dot */}
                       <div className={`absolute top-2 right-2 w-2 h-2 rounded-full ${theme.dot}`} />
                     </button>
                   );
@@ -284,7 +274,6 @@ export default function ActionSidebar() {
         )}
       </div>
 
-      {/* ✅ EVENT HISTORY LOG - PRESERVED STYLING */}
       <div className="border-t bg-white flex flex-col max-h-[35%] shrink-0">
         <div className="p-2 bg-gray-50 border-b text-[10px] font-bold uppercase text-gray-400 tracking-widest text-center">
           Event Log
@@ -303,11 +292,9 @@ export default function ActionSidebar() {
                 <div className="p-1.5 space-y-1.5">
                    {group.events.map((e) => {
                       const theme = getOutcomeTheme(e.outcome);
-                      // ✅ Find Player & Jersey
                       const p = players.find((x) => x.id === e.playerId);
                       const jersey = p ? p.jerseyNumber : "?";
 
-                      // ✅ Special rendering for SUBS (if present in log)
                       if (e.skillKey === "SUBSTITUTION") {
                           return (
                             <div key={e.id} className="flex items-center justify-between text-xs bg-gray-50 p-1.5 rounded border border-gray-200 shadow-sm">
@@ -320,14 +307,11 @@ export default function ActionSidebar() {
                       return (
                         <div key={e.id} className="flex items-center justify-between text-sm bg-white p-2 rounded border border-gray-200 shadow-sm">
                            <div className="flex items-center gap-3">
-                              {/* Jersey Number */}
                               <span className="font-black text-gray-500 text-xs w-6 text-center bg-gray-100 rounded py-0.5">#{jersey}</span>
-                              {/* Skill Name */}
                               <div className="font-extrabold text-gray-800 uppercase tracking-tight">
                                   {e.skill.replace("SPIKE", "ATK").substring(0, 3)}
                               </div>
                            </div>
-                           {/* Outcome Badge - Bold & Readable */}
                            <div className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wide border ${theme.badge}`}>
                               {e.outcome.replace("POINT", "KILL").replace("SUCCESS", "GOOD").replace("PERFECT", "EXC")}
                            </div>

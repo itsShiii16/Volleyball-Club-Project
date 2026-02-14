@@ -9,7 +9,7 @@ import ActionSidebar from "@/components/ActionSidebar";
 import ScoresheetPanel from "@/components/Court/Scoresheet/ScoresheetPanel";
 
 import { useMemo, useState, useCallback, useEffect, useRef } from "react";
-import { useMatchStore } from "@/store/matchStore";
+import { useMatchStore, TrackerMode } from "@/store/matchStore"; //
 import { useRouter } from "next/navigation";
 import {
   DndContext,
@@ -28,11 +28,12 @@ export default function Home() {
   const router = useRouter();
   
   // -- Store Selectors --
+  const trackerMode = useMatchStore((s) => s.trackerMode); //
+  const setTrackerMode = useMatchStore((s) => s.setTrackerMode); //
   const players = useMatchStore((s) => s.players);
   const assign = useMatchStore((s) => s.assignPlayerToSlot);
   const resetMatch = useMatchStore((s) => s.resetMatch);
   
-  // ✅ Undo Logic & Events (Needed to check if last action was a sub)
   const events = useMatchStore((s) => s.events);
   const undoLastEvent = useMatchStore((s) => s.undoLastEvent);
   
@@ -42,10 +43,8 @@ export default function Home() {
     return false;
   });
 
-  // ✅ HANDLER: Undo Sub
   const handleUndoSub = (teamId: "A" | "B") => {
     const lastEvent = events[0];
-    // Check if the very last event was a substitution for this team
     if (lastEvent && lastEvent.skillKey === "SUBSTITUTION" && lastEvent.teamId === teamId) {
         if (window.confirm(`Undo last substitution for Team ${teamId}?`)) {
             undoLastEvent();
@@ -56,7 +55,6 @@ export default function Home() {
   const rotateTeam = useMatchStore((s) => s.rotateTeam);
   const resetCourt = useMatchStore((s) => s.resetCourt);
   const swapSides = useMatchStore((s) => s.swapSides);
-  
   const servingTeam = useMatchStore((s) => s.servingTeam);
   const setServingTeam = useMatchStore((s) => s.setServingTeam);
   const leftTeam = useMatchStore((s) => s.leftTeam);
@@ -71,7 +69,6 @@ export default function Home() {
   const setsWonB = useMatchStore((s) => s.setsWonB);
   const setNumber = useMatchStore((s) => s.setNumber);
 
-  // ✅ SUBS SELECTORS
   const subsUsedA = useMatchStore((s) => s.subsUsedA);
   const subsUsedB = useMatchStore((s) => s.subsUsedB);
   const leftSubs = leftTeam === "A" ? subsUsedA : subsUsedB;
@@ -190,7 +187,8 @@ export default function Home() {
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-[var(--background)] text-white">
-      <div className="hidden xl:block w-64 shrink-0 border-r border-white/10 shadow-sm z-10 overflow-hidden bg-white/5 backdrop-blur-sm">
+      {/* LEFT RAIL - Automatically hidden in Scoring mode to focus on points */}
+      <div className={`hidden xl:block w-64 shrink-0 border-r border-white/10 shadow-sm z-10 overflow-hidden bg-white/5 backdrop-blur-sm ${trackerMode === "SCORING" ? "lg:hidden" : ""}`}>
         <EventLogRail />
       </div>
 
@@ -211,7 +209,20 @@ export default function Home() {
 
               {/* HEADER */}
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex gap-2 flex-wrap">
+                <div className="flex gap-2 flex-wrap items-center">
+                  {/* ✅ MODE SELECTOR: Allows switching responsibility */}
+                  <div className="flex bg-gray-800 p-1 rounded-xl border border-white/10 mr-2">
+                    {(["SCORING", "NON_SCORING", "FULL"] as TrackerMode[]).map((m) => (
+                      <button
+                        key={m}
+                        onClick={() => setTrackerMode(m)}
+                        className={`px-3 py-1.5 rounded-lg text-[10px] font-black transition-all ${trackerMode === m ? "bg-white text-black shadow-lg" : "text-gray-400 hover:text-white"}`}
+                      >
+                        {m === "NON_SCORING" ? "NON-SCORE" : m}
+                      </button>
+                    ))}
+                  </div>
+
                   <button onClick={openMatchSummary} disabled={savedSetsCount === 0} className={savedSetsCount > 0 ? btnWhite : btnDisabled}>
                     SUMMARY {savedSetsCount > 0 && `(${savedSetsCount})`}
                   </button>
@@ -234,18 +245,20 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* SERVE BUTTONS */}
-              <div className="flex justify-center gap-4 py-1">
-                 <button onClick={() => setServingTeam(leftTeam)} className={servingTeam === leftTeam ? btnBlue : btnWhite}>
-                    Serve Left
-                  </button>
-                  <button onClick={() => setServingTeam(rightTeam)} className={servingTeam === rightTeam ? btnBlue : btnWhite}>
-                    Serve Right
-                  </button>
-              </div>
+              {/* SERVE BUTTONS - Disabled for Non-Scoring trackers */}
+              {trackerMode !== "NON_SCORING" && (
+                <div className="flex justify-center gap-4 py-1">
+                   <button onClick={() => setServingTeam(leftTeam)} className={servingTeam === leftTeam ? btnBlue : btnWhite}>
+                      Serve Left
+                    </button>
+                    <button onClick={() => setServingTeam(rightTeam)} className={servingTeam === rightTeam ? btnBlue : btnWhite}>
+                      Serve Right
+                    </button>
+                </div>
+              )}
 
-              {/* SCOREBOARD */}
-              <div className="flex flex-col gap-4 items-center w-full">
+              {/* SCOREBOARD - Non-interactive if in Non-Scoring mode */}
+              <div className={`flex flex-col gap-4 items-center w-full ${trackerMode === "NON_SCORING" ? "opacity-60 grayscale-[0.3] pointer-events-none" : ""}`}>
                 
                 <div className="flex items-center gap-4 bg-gray-900/40 px-6 py-2 rounded-full border border-white/5">
                     <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
@@ -283,7 +296,6 @@ export default function Home() {
                       
                       <div className="h-4 w-px bg-white/20 mx-1"></div>
                       
-                      {/* ✅ SUBS PIPS with Click Handler */}
                       <SubsPips count={leftSubs} onClick={() => handleUndoSub(leftTeam)} />
                       <div className="text-[10px] font-bold text-blue-300 uppercase tracking-wider">SUBS</div>
                     </div>
@@ -323,7 +335,6 @@ export default function Home() {
                     />
                     <div className="flex items-center gap-3 px-2">
                       <div className="text-[10px] font-bold text-blue-300 uppercase tracking-wider">SUBS</div>
-                      {/* ✅ SUBS PIPS with Click Handler */}
                       <SubsPips count={rightSubs} onClick={() => handleUndoSub(rightTeam)} />
                       
                       <div className="h-4 w-px bg-white/20 mx-1"></div>
@@ -433,7 +444,6 @@ function TimeoutPips({ value, onToggle }: { value: boolean[]; onToggle: (idx: nu
   );
 }
 
-// ✅ UPDATED COMPONENT: SUBS PIPS (Clickable)
 function SubsPips({ count, onClick }: { count: number; onClick: () => void }) {
   return (
     <div 
