@@ -1,7 +1,7 @@
 "use client";
 
 import { useMatchStore } from "@/store/matchStore";
-import { useMemo, useRef } from "react";
+import { useMemo, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import type { Position, TeamId, Player } from "@/lib/volleyball";
 
@@ -37,6 +37,25 @@ export default function SetupPage() {
   const liberoConfigB = useMatchStore((s) => s.liberoConfigB);
   const setLiberoConfig = useMatchStore((s) => s.setLiberoConfig);
 
+  // ✅ FEATURE: Initialize 15 slots per team if empty
+  useEffect(() => {
+    if (players.length === 0) {
+      const initialRoster: Player[] = [];
+      (["A", "B"] as TeamId[]).forEach((tId) => {
+        for (let i = 0; i < 15; i++) {
+          initialRoster.push({
+            id: crypto.randomUUID(),
+            teamId: tId,
+            name: "",
+            jerseyNumber: 0,
+            position: "OH",
+          });
+        }
+      });
+      setPlayers(initialRoster);
+    }
+  }, [players.length, setPlayers]);
+
   const teamA = useMemo(
     () => players.filter((p) => p.teamId === "A").sort((a, b) => a.jerseyNumber - b.jerseyNumber),
     [players]
@@ -46,7 +65,8 @@ export default function SetupPage() {
     [players]
   );
 
-  const rosterReady = teamA.length >= 6 && teamB.length >= 6;
+  const rosterReady = teamA.filter(p => p.name.trim() !== "").length >= 6 && 
+                      teamB.filter(p => p.name.trim() !== "").length >= 6;
 
   function add(teamId: TeamId) {
     addPlayer({
@@ -54,12 +74,27 @@ export default function SetupPage() {
       teamId,
       name: "",
       jerseyNumber: 0,
-      position: "OH", // ✅ default is now OH
+      position: "OH",
     });
   }
 
+  // ✅ FEATURE: Clear all players from a team
+  function clearTeam(teamId: TeamId) {
+    if (confirm(`Clear all names and data for Team ${teamId}?`)) {
+      const otherTeam = players.filter(p => p.teamId !== teamId);
+      const blanks: Player[] = Array.from({ length: 15 }, () => ({
+        id: crypto.randomUUID(),
+        teamId,
+        name: "",
+        jerseyNumber: 0,
+        position: "OH"
+      }));
+      setPlayers([...otherTeam, ...blanks]);
+    }
+  }
+
   function jerseyDuplicate(teamId: TeamId, jersey: number, id: string) {
-    if (!jersey) return false;
+    if (!jersey || jersey === 0) return false;
     return players.some(
       (p) => p.teamId === teamId && p.jerseyNumber === jersey && p.id !== id
     );
@@ -72,13 +107,12 @@ export default function SetupPage() {
 
   /* ------------------ JSON EXPORT ------------------ */
   function exportJSON(teamId?: TeamId) {
-    // ✅ Filter by team if teamId is provided, otherwise export all
     const dataToExport = teamId 
-      ? players.filter((p) => p.teamId === teamId)
-      : players;
+      ? players.filter((p) => p.teamId === teamId && p.name !== "")
+      : players.filter(p => p.name !== "");
 
     if (dataToExport.length === 0) {
-        alert("No players to export.");
+        alert("No valid players to export.");
         return;
     }
 
@@ -89,7 +123,6 @@ export default function SetupPage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    // ✅ Dynamic filename
     a.download = teamId ? `roster-team-${teamId}.json` : "roster-full.json";
     a.click();
     URL.revokeObjectURL(url);
@@ -114,35 +147,29 @@ export default function SetupPage() {
         const newPlayers: Player[] = [];
 
         for (const raw of parsed) {
-          // We intentionally regenerate ID to allow importing the same file to both teams
           const id = crypto.randomUUID(); 
           const name = String(raw?.name ?? "");
           const jerseyNumber = Number(raw?.jerseyNumber ?? NaN);
           const pos = normalizeImportedPosition(raw?.position);
 
-          if (!Number.isFinite(jerseyNumber) || !pos) {
-            continue; // Skip invalid
-          }
+          if (!Number.isFinite(jerseyNumber) || !pos) continue;
 
-          // ✅ Force the player to the selected Team (A or B)
           newPlayers.push({ id, teamId: targetTeam, name, jerseyNumber, position: pos });
         }
 
-        // ✅ Keep the OTHER team, replace the TARGET team
         const otherTeamPlayers = players.filter(p => p.teamId !== targetTeam);
         setPlayers([...otherTeamPlayers, ...newPlayers]);
 
       } catch {
         alert("Failed to parse JSON file.");
       } finally {
-        targetTeamRef.current = null; // Reset
+        targetTeamRef.current = null;
       }
     };
 
     reader.readAsText(file);
   }
 
-  // ✅ Button style constant
   const btnSecondary = "px-3 py-2 rounded-lg bg-white text-black shadow hover:shadow-md font-semibold border border-gray-200 transition-all text-xs sm:text-sm";
 
   return (
@@ -153,7 +180,6 @@ export default function SetupPage() {
           <h1 className="text-2xl font-extrabold text-black">Roster Setup</h1>
 
           <div className="flex flex-wrap gap-2 justify-center">
-            {/* ✅ SEPARATE EXPORT BUTTONS */}
             <div className="flex gap-1">
                 <button onClick={() => exportJSON("A")} className={btnSecondary} title="Export Team A Roster">
                 ⬇️ Export A
@@ -165,7 +191,6 @@ export default function SetupPage() {
 
             <div className="w-px h-8 bg-gray-300 mx-1 hidden sm:block"></div>
 
-            {/* ✅ SEPARATE IMPORT BUTTONS */}
             <div className="flex gap-1">
                 <button onClick={() => handleImportClick("A")} className={btnSecondary} title="Import Roster into Team A">
                 ⬆️ Import A
@@ -198,14 +223,14 @@ export default function SetupPage() {
         {/* ✅ Libero Auto-Sub Controls */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
           <LiberoAutoSubCard
-            title="Libero Auto-Sub (Team A)"
+            title="Libero Setup (Team A)"
             teamId="A"
             players={teamA}
             config={liberoConfigA}
             setConfig={setLiberoConfig}
           />
           <LiberoAutoSubCard
-            title="Libero Auto-Sub (Team B)"
+            title="Libero Setup (Team B)"
             teamId="B"
             players={teamB}
             config={liberoConfigB}
@@ -223,6 +248,7 @@ export default function SetupPage() {
             onUpdate={updatePlayer}
             onRemove={removePlayer}
             jerseyDuplicate={jerseyDuplicate}
+            onClear={() => clearTeam("A")}
           />
 
           <TeamPanel
@@ -233,6 +259,7 @@ export default function SetupPage() {
             onUpdate={updatePlayer}
             onRemove={removePlayer}
             jerseyDuplicate={jerseyDuplicate}
+            onClear={() => clearTeam("B")}
           />
         </div>
 
@@ -245,7 +272,7 @@ export default function SetupPage() {
               </span>
             ) : (
               <span>
-                Add at least <b>6 players per team</b> to start.
+                Input at least <b>6 players per team</b> to start.
               </span>
             )}
           </div>
@@ -256,7 +283,7 @@ export default function SetupPage() {
             className={[
               "px-5 py-3 rounded-lg font-semibold shadow transition",
               rosterReady
-                ? "bg-[var(--brand-sky)] text-white hover:opacity-90"
+                ? "bg-sky-500 text-white hover:opacity-90"
                 : "bg-gray-300 text-gray-600 cursor-not-allowed",
             ].join(" ")}
           >
@@ -280,28 +307,24 @@ function LiberoAutoSubCard({
   title: string;
   teamId: TeamId;
   players: Player[];
-  config: { enabled: boolean; liberoId: string | null; replacementIds: string[] } | null;
-  setConfig: (
-    teamId: TeamId,
-    cfg: Partial<{ enabled: boolean; liberoId: string | null; replacementIds: string[] }>
-  ) => void;
+  config: any;
+  setConfig: (teamId: TeamId, cfg: any) => void;
 }) {
-  const liberoOptions = players.filter((p) => String(p.position).toUpperCase() === "L" || String(p.position).toUpperCase() === "LIBERO");
+  const liberoOptions = players.filter((p) => ["L", "LIBERO"].includes(String(p.position).toUpperCase()));
   
   const replacementOptions = players.filter((p) => {
       const pos = String(p.position).toUpperCase();
-      return ["MB", "MIDDLE", "OH", "OUTSIDE", "WS", "OPP", "OPPOSITE", "RIGHT_SIDE"].some(valid => pos.includes(valid));
+      return ["MB", "MIDDLE", "OH", "OUTSIDE", "OPP", "OPPOSITE"].some(valid => pos.includes(valid));
   });
 
   const enabled = config?.enabled ?? false;
+  const mode = config?.mode ?? "CLASSIC";
   
-  // ✅ FIX: Verify Libero Exists
   const rawLiberoId = config?.liberoId ?? null;
   const liberoId = players.some(p => p.id === rawLiberoId) ? rawLiberoId : null;
 
-  // ✅ FIX: Filter out IDs that do not exist in the current player list (Ghost Players)
   const rawReplacementIds = Array.isArray(config?.replacementIds) ? config!.replacementIds : [];
-  const replacementIds = rawReplacementIds.filter(id => players.some(p => p.id === id));
+  const replacementIds = rawReplacementIds.filter((id: string) => players.some(p => p.id === id));
 
   function toggleReplacement(id: string) {
     const current = [...replacementIds];
@@ -327,87 +350,103 @@ function LiberoAutoSubCard({
             type="checkbox"
             checked={enabled}
             onChange={(e) => setConfig(teamId, { enabled: e.target.checked })}
-            className="w-4 h-4 text-pink-600 rounded focus:ring-pink-500"
+            className="w-4 h-4 text-sky-600 rounded focus:ring-sky-500"
           />
           Enable
         </label>
       </div>
 
+      {/* Dual Libero Mode Toggle */}
+      <div className="flex gap-1 mb-4 bg-gray-100 p-1 rounded-lg">
+        <button 
+          onClick={() => setConfig(teamId, { mode: "CLASSIC" })}
+          className={`flex-1 py-1.5 text-[10px] font-black rounded-md transition-all ${mode === "CLASSIC" ? "bg-white shadow text-black" : "text-gray-400"}`}
+        >
+          CLASSIC
+        </button>
+        <button 
+          onClick={() => setConfig(teamId, { mode: "DUAL" })}
+          className={`flex-1 py-1.5 text-[10px] font-black rounded-md transition-all ${mode === "DUAL" ? "bg-white shadow text-black" : "text-gray-400"}`}
+        >
+          DUAL LIBERO
+        </button>
+      </div>
+
       <div className="mt-3 grid grid-cols-1 gap-3">
         <div>
-          <div className="text-xs font-bold text-black/60 mb-1">Choose Libero</div>
+          <div className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">
+            {mode === "DUAL" ? "Receiving Libero (Loss of Point)" : "Primary Libero"}
+          </div>
           <select
             value={liberoId ?? ""}
             onChange={(e) => setConfig(teamId, { liberoId: e.target.value || null })}
-            className="w-full border rounded-lg px-3 py-2 bg-white text-black font-semibold"
+            className="w-full border border-gray-200 rounded-lg px-3 py-2 bg-white text-black font-semibold text-sm"
           >
-            <option value="">— Select Libero —</option>
+            <option value="">— Select —</option>
             {liberoOptions.map((p) => (
               <option key={p.id} value={p.id}>
-                #{p.jerseyNumber} {p.name || "(No name)"} • {p.position}
+                #{p.jerseyNumber} {p.name || "(No name)"}
               </option>
             ))}
           </select>
-
-          {liberoOptions.length === 0 && (
-            <div className="mt-1 text-xs text-amber-700 font-semibold">
-              Add at least one player with position <b>L</b>.
-            </div>
-          )}
         </div>
 
+        {mode === "DUAL" && (
+          <div>
+            <div className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">
+              Digging Libero (On Serve)
+            </div>
+            <select
+              value={config?.secondLiberoId ?? ""}
+              onChange={(e) => setConfig(teamId, { secondLiberoId: e.target.value || null })}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 bg-white text-black font-semibold text-sm"
+            >
+              <option value="">— Select —</option>
+              {liberoOptions.map((p) => (
+                <option key={p.id} value={p.id}>
+                  #{p.jerseyNumber} {p.name || "(No name)"}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
         <div>
-          <div className="text-xs font-bold text-black/60 mb-2">Choose 2 Players to Rotate (MB/OH/OPP)</div>
+          <div className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Replacements (Select 2)</div>
 
-          {replacementOptions.length === 0 ? (
-            <div className="mt-1 text-xs text-amber-700 font-semibold">
-              Add players with position <b>MB, OH, or OPP</b>.
-            </div>
-          ) : (
-            <div className="flex flex-col gap-2">
-              {replacementOptions.map((p) => {
-                const checked = replacementIds.includes(p.id);
-                // Disable ONLY if not checked AND we are full (2/2)
-                const disabled = !checked && replacementIds.length >= 2;
+          <div className="flex flex-wrap gap-2">
+            {replacementOptions.map((p) => {
+              const checked = replacementIds.includes(p.id);
+              const disabled = !checked && replacementIds.length >= 2;
 
-                return (
-                  <label
-                    key={p.id}
-                    className={[
-                      "flex items-center gap-3 rounded-lg border px-3 py-2 transition select-none",
-                      checked ? "border-pink-500 bg-pink-50" : "border-gray-200 hover:bg-gray-50",
-                      disabled ? "opacity-50 cursor-not-allowed hover:bg-white" : "cursor-pointer",
-                    ].join(" ")}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      disabled={disabled}
-                      onChange={() => toggleReplacement(p.id)}
-                      className="w-4 h-4 text-pink-600 rounded focus:ring-pink-500"
-                    />
-                    <div className="flex-1 text-sm font-semibold text-black truncate">
-                      #{p.jerseyNumber} {p.name || "(No name)"}
-                    </div>
-                    <div className="text-xs font-extrabold text-black/60">{p.position}</div>
-                  </label>
-                );
-              })}
-            </div>
-          )}
+              return (
+                <button
+                  key={p.id}
+                  disabled={disabled}
+                  onClick={() => toggleReplacement(p.id)}
+                  // ✅ Layout Retained: Button style updated to show surname
+                  className={`px-3 py-2 rounded-lg border text-[10px] font-bold transition-all text-left flex flex-col justify-center min-w-[80px] ${
+                    checked 
+                      ? "bg-sky-500 border-sky-600 text-white shadow-sm" 
+                      : "bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100"
+                  } ${disabled ? "opacity-30 cursor-not-allowed" : ""}`}
+                >
+                  <span className="opacity-70">#{p.jerseyNumber} {p.position}</span>
+                  {/* ✅ FEATURE: Surnames displayed here */}
+                  <span className="uppercase truncate w-full">{p.name || "EMPTY"}</span>
+                </button>
+              );
+            })}
+          </div>
 
-          <div className="mt-2 text-xs text-black/60 font-semibold">
-            Selected:{" "}
-            <b className={replacementIds.length === 2 ? "text-green-600" : "text-amber-700"}>
-              {replacementIds.length}/2
-            </b>
+          <div className="mt-2 text-[10px] font-bold text-gray-400 uppercase">
+            Selection: <span className={replacementIds.length === 2 ? "text-emerald-500" : "text-amber-500"}>{replacementIds.length}/2</span>
           </div>
         </div>
       </div>
     </section>
   );
 }
-
 /* ------------------ TEAM PANEL ------------------ */
 
 function TeamPanel({
@@ -418,6 +457,7 @@ function TeamPanel({
   onUpdate,
   onRemove,
   jerseyDuplicate,
+  onClear,
 }: {
   title: string;
   teamId: TeamId;
@@ -426,34 +466,35 @@ function TeamPanel({
   onUpdate: (id: string, patch: Partial<Player>) => void;
   onRemove: (id: string) => void;
   jerseyDuplicate: (teamId: TeamId, jersey: number, id: string) => boolean;
+  onClear: () => void;
 }) {
   return (
-    <section className="bg-white rounded-xl shadow p-4 border border-gray-200">
-      <div className="flex items-center justify-between mb-3">
+    <section className="bg-white rounded-xl shadow p-4 border border-gray-200 flex flex-col h-full">
+      <div className="flex items-center justify-between mb-4">
         <h2 className="font-extrabold text-lg text-black">{title}</h2>
 
         <button
           onClick={onAdd}
-          className="px-3 py-2 rounded-lg bg-[var(--brand-sky)] text-white text-sm font-semibold shadow hover:opacity-90"
+          className="px-3 py-1.5 rounded-lg bg-sky-500 text-white text-xs font-bold shadow hover:opacity-90 transition-all"
         >
-          + Add Player
+          + Add Slot
         </button>
       </div>
 
-      <div className="space-y-3">
+      <div className="space-y-2 flex-1 overflow-y-auto max-h-[600px] pr-1 scrollbar-hide">
         {players.map((p) => {
           const dup = jerseyDuplicate(teamId, p.jerseyNumber, p.id);
 
           return (
             <div
               key={p.id}
-              className="grid grid-cols-[1fr_80px_90px_auto] gap-2 items-center"
+              className="grid grid-cols-[1fr_50px_70px_30px] gap-2 items-center"
             >
               <input
                 value={p.name}
-                placeholder="Name"
+                placeholder="Player Name"
                 onChange={(e) => onUpdate(p.id, { name: e.target.value })}
-                className="border border-gray-300 rounded-lg px-3 py-2 bg-white text-black text-sm font-semibold"
+                className="border border-gray-200 rounded-lg px-2 py-2 bg-white text-black text-sm font-semibold focus:border-sky-300 outline-none transition-all"
               />
 
               <input
@@ -461,16 +502,15 @@ function TeamPanel({
                 value={p.jerseyNumber || ""}
                 placeholder="#"
                 onChange={(e) => onUpdate(p.id, { jerseyNumber: Number(e.target.value) })}
-                className={[
-                  "border rounded-lg px-2 py-2 bg-white text-black text-center text-sm font-bold",
-                  dup ? "border-red-500 ring-1 ring-red-500" : "border-gray-300",
-                ].join(" ")}
+                className={`border rounded-lg px-1 py-2 bg-white text-black text-center text-sm font-bold focus:ring-1 focus:ring-sky-300 outline-none transition-all ${
+                  dup ? "border-red-500 bg-red-50" : "border-gray-200"
+                }`}
               />
 
               <select
                 value={p.position}
                 onChange={(e) => onUpdate(p.id, { position: e.target.value as Position })}
-                className="border border-gray-300 rounded-lg px-2 py-2 bg-white text-black text-sm font-bold"
+                className="border border-gray-200 rounded-lg px-1 py-2 bg-white text-black text-xs font-bold focus:border-sky-300 outline-none transition-all"
               >
                 {POSITIONS.map((pos) => (
                   <option key={pos} value={pos}>
@@ -479,25 +519,30 @@ function TeamPanel({
                 ))}
               </select>
 
-              <button onClick={() => onRemove(p.id)} className="text-red-400 hover:text-red-600 p-2 font-bold">
+              <button 
+                onClick={() => onRemove(p.id)} 
+                className="text-gray-300 hover:text-red-500 transition-colors flex justify-center"
+              >
                 ✕
               </button>
 
               {dup && (
-                <div className="col-span-4 text-xs text-red-600 font-bold">
-                  Duplicate Jersey #
+                <div className="col-span-4 text-[9px] text-red-500 font-black uppercase tracking-tighter -mt-1 pl-1">
+                  Jersey Number is taken
                 </div>
               )}
             </div>
           );
         })}
-        
-        {players.length === 0 && (
-          <div className="text-center text-sm text-gray-400 py-4 italic">
-            No players added yet.
-          </div>
-        )}
       </div>
+
+      {/* ✅ FEATURE: Clear Team Button */}
+      <button 
+        onClick={onClear}
+        className="mt-6 w-full py-2.5 rounded-xl border-2 border-dashed border-red-100 text-red-400 text-[10px] font-black uppercase tracking-widest hover:bg-red-50 hover:border-red-200 transition-all"
+      >
+        Clear All Team {teamId} Players
+      </button>
     </section>
   );
 }
