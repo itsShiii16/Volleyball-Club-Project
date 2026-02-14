@@ -113,13 +113,12 @@ export default function MatchSummaryModal() {
   const [sheetTab, setSheetTab] = useState<TeamId>("A");
   const [filterSetId, setFilterSetId] = useState<string | "ALL">("ALL");
 
-  // ✅ HANDLER: Multi-Device Export
+  // ✅ Multi-Device Sync Handlers
   const handleExportForPartner = () => {
     const dataStr = JSON.stringify(events, null, 2);
-    downloadFile(dataStr, `match_events_share.json`, "application/json");
+    downloadFile(dataStr, `stats_share_${Date.now()}.json`, "application/json");
   };
 
-  // ✅ HANDLER: Multi-Device Import
   const handleImportFromPartner = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -129,7 +128,7 @@ export default function MatchSummaryModal() {
         const partnerEvents = JSON.parse(event.target?.result as string);
         importEvents(partnerEvents);
       } catch (err) {
-        alert("Invalid file format. Please upload a stats JSON file.");
+        alert("Invalid file format.");
       }
     };
     reader.readAsText(file);
@@ -142,7 +141,6 @@ export default function MatchSummaryModal() {
   }, [savedSets, filterSetId]);
 
   const activeEvents = useMemo(() => {
-    // Merge live events into "ALL" view to ensure POG reflects the current set too
     const saved = filteredSets.flatMap((s) => s.events || []);
     return filterSetId === "ALL" ? [...saved, ...events] : saved;
   }, [filteredSets, events, filterSetId]);
@@ -163,12 +161,9 @@ export default function MatchSummaryModal() {
 
     const sumRows = (rows: typeof rowsA) => {
         const t = {
-            points: 0,
-            spikes: { won: 0, error: 0, total: 0 },
-            blocks: { won: 0, error: 0 },
-            serves: { ace: 0, error: 0, total: 0 },
-            oppError: 0,
-            dig: { exc: 0, error: 0, total: 0 },
+            points: 0, spikes: { won: 0, error: 0, total: 0 },
+            blocks: { won: 0, error: 0 }, serves: { ace: 0, error: 0, total: 0 },
+            oppError: 0, dig: { exc: 0, error: 0, total: 0 },
             set: { exc: 0, running: 0, error: 0, total: 0 },
             receive: { exc: 0, error: 0, total: 0 },
         };
@@ -186,11 +181,8 @@ export default function MatchSummaryModal() {
     const totalA = sumRows(rowsA);
     const totalB = sumRows(rowsB);
 
-    const actualScoreA = filteredSets.reduce((sum, s) => sum + s.finalScoreA, 0);
-    const actualScoreB = filteredSets.reduce((sum, s) => sum + s.finalScoreB, 0);
-
-    totalA.points = actualScoreA;
-    totalB.points = actualScoreB;
+    totalA.points = filteredSets.reduce((sum, s) => sum + s.finalScoreA, 0);
+    totalB.points = filteredSets.reduce((sum, s) => sum + s.finalScoreB, 0);
 
     const setsWonA = savedSets.filter(s => s.winner === "A").length;
     const setsWonB = savedSets.filter(s => s.winner === "B").length;
@@ -202,14 +194,11 @@ export default function MatchSummaryModal() {
     const totalsPog: Record<string, number> = {};
     const setsPlayedMap: Record<string, number> = {};
 
-    // Logic: use the actual match store calculations if available, 
-    // otherwise fallback to calculated activeEvents for live sync updates
+    // POG points calculation (Syncs with partner data after import)
     for (const set of filteredSets) {
-      if (set.perPlayer) { 
-        for (const [pid, data] of Object.entries(set.perPlayer)) { 
-          totalsPog[pid] = (totalsPog[pid] ?? 0) + Number(data?.pogPoints ?? 0); 
-        } 
-      }
+      const activeIds = new Set<string>();
+      if (set.perPlayer) { for (const [pid, data] of Object.entries(set.perPlayer)) { totalsPog[pid] = (totalsPog[pid] ?? 0) + Number(data?.pogPoints ?? 0); activeIds.add(pid); } }
+      activeIds.forEach(pid => setsPlayedMap[pid] = (setsPlayedMap[pid] || 0) + 1);
     }
 
     const ranked = Object.entries(totalsPog)
@@ -298,7 +287,7 @@ export default function MatchSummaryModal() {
                 <div className="w-px h-6 bg-gray-700 mx-1"></div>
                 
                 <button onClick={handleExportCSV} className="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-white font-bold transition text-xs flex items-center gap-1 shadow-sm"><span>📊</span> CSV</button>
-                <button onClick={handleExportJSON} className="px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-white font-bold transition text-xs flex items-center gap-1 shadow-sm"><span>💾</span> BACKUP</button>
+                <button onClick={handleExportJSON} className="px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-white font-bold transition text-xs flex items-center gap-1 shadow-sm"><span>💾</span> JSON</button>
                 <button onClick={close} className="p-2 bg-white/10 hover:bg-white/20 rounded-lg text-white font-bold transition text-xs ml-2">✕ CLOSE</button>
             </div>
           </div>
@@ -381,7 +370,7 @@ export default function MatchSummaryModal() {
                             </tr>
                           );
                       })}
-                      <tr className="bg-gray-100 font-bold border-t-2 border-gray-300 shadow-inner text-gray-900">
+                      <tr className="bg-gray-100 font-bold border-t-2 border-gray-300 shadow-inner">
                         <td colSpan={3} className="px-4 py-3 text-right uppercase text-xs tracking-widest text-gray-500 sticky left-0 bg-gray-100 z-10 border-r border-gray-300">Team Total</td>
                         <td className="px-2 py-3 bg-yellow-200 text-black font-black text-lg border-r border-gray-400">{currentTotal.points}</td>
                         <td className="px-1">{currentTotal.spikes.won}</td><td className="px-1 text-red-500">{currentTotal.spikes.error}</td><td className="px-1 text-gray-500 border-r border-gray-300">{currentTotal.spikes.total}</td><td className="px-1 border-r border-gray-300" colSpan={2}></td>
@@ -398,9 +387,9 @@ export default function MatchSummaryModal() {
             </div>
           )}
 
-          {/* 2. RANKINGS */}
+          {/* 2. RANKINGS (With POG Details) */}
           {viewMode === "rankings" && (
-            <div className="flex-1 overflow-auto p-4 lg:p-8 bg-gray-50 space-y-8 text-gray-900">
+            <div className="flex-1 overflow-auto p-4 lg:p-8 bg-gray-50 space-y-8">
               <div className="rounded-xl bg-white border border-gray-200 p-6 shadow-sm">
                   <div className="font-black text-sm mb-4 text-gray-400 uppercase tracking-widest">Match History</div>
                   {savedSets.length === 0 ? <div className="text-sm text-gray-400 italic">No saved sets yet.</div> : (
@@ -420,9 +409,9 @@ export default function MatchSummaryModal() {
                     <div className="rounded-xl bg-gradient-to-br from-yellow-50 to-white border border-yellow-200 p-6 shadow-sm">
                        <div className="flex justify-between items-start mb-6">
                            <div>
-                               <div className="text-xs font-bold uppercase text-yellow-600 mb-1">{filterSetId === "ALL" ? "Player of the Game" : "Top Performer"}</div>
+                               <div className="text-xs font-bold uppercase text-yellow-600 mb-1">{filterSetId === "ALL" ? "Player of the Game" : `Top Performer (Set ${savedSets.find(s=>s.id === filterSetId)?.setNumber})`}</div>
                                <div className="text-3xl font-black text-gray-900">#{rankingsData.pog.jersey} {rankingsData.pog.name}</div>
-                               <div className="text-sm text-gray-500 font-bold mt-1">Team {rankingsData.pog.teamId} • {rankingsData.pog.position}</div>
+                               <div className="text-sm text-gray-500 font-bold mt-1">Team {rankingsData.pog.teamId} • {rankingsData.pog.position} • {rankingsData.pog.setsPlayed} Sets Played</div>
                            </div>
                            <div className="text-right">
                                <div className="text-5xl font-black text-yellow-500">{rankingsData.pog.pogPoints.toFixed(1)}</div>
@@ -430,40 +419,52 @@ export default function MatchSummaryModal() {
                            </div>
                        </div>
 
-                       <div className="bg-white/50 rounded-lg border border-yellow-100 overflow-hidden">
+                       <div className="bg-white/50 rounded-lg border border-yellow-100 overflow-hidden text-gray-900">
                            <table className="w-full text-center text-sm">
                                {bucketFromPosition(rankingsData.pog.position) === "L" ? (
                                    <>
                                      <thead className="bg-yellow-100/50 text-gray-600 font-bold uppercase text-[10px]">
-                                         <tr><th className="p-2 border-r">Rec Eff %</th><th className="p-2 border-r">Dig Eff %</th><th className="p-2 border-r">Exc Rec</th><th className="p-2">Exc Digs</th></tr>
+                                         <tr><th className="p-2 border-r border-yellow-200">Rec Eff %</th><th className="p-2 border-r border-yellow-200">Dig Eff %</th><th className="p-2 border-r border-yellow-200">Exc Rec</th><th className="p-2">Exc Digs</th></tr>
                                      </thead>
                                      <tbody>
                                          <tr className="font-black text-gray-800 text-lg">
-                                             <td className="p-3 border-r">{calcEff(pogStatsRow.stats.receive.exc, pogStatsRow.stats.receive.error, pogStatsRow.stats.receive.total)}</td>
-                                             <td className="p-3 border-r">{calcEff(pogStatsRow.stats.dig.exc, pogStatsRow.stats.dig.error, pogStatsRow.stats.dig.total)}</td>
-                                             <td className="p-3 border-r">{pogStatsRow.stats.receive.exc}</td><td className="p-3">{pogStatsRow.stats.dig.exc}</td>
+                                             <td className="p-3 border-r border-yellow-100">{calcEff(pogStatsRow.stats.receive.exc, pogStatsRow.stats.receive.error, pogStatsRow.stats.receive.total)}</td>
+                                             <td className="p-3 border-r border-yellow-100">{calcEff(pogStatsRow.stats.dig.exc, pogStatsRow.stats.dig.error, pogStatsRow.stats.dig.total)}</td>
+                                             <td className="p-3 border-r border-yellow-100">{pogStatsRow.stats.receive.exc}</td>
+                                             <td className="p-3">{pogStatsRow.stats.dig.exc}</td>
                                          </tr>
                                      </tbody>
                                    </>
                                ) : bucketFromPosition(rankingsData.pog.position) === "S" ? (
                                    <>
                                      <thead className="bg-yellow-100/50 text-gray-600 font-bold uppercase text-[10px]">
-                                         <tr><th className="p-2 border-r">Exc Sets</th><th className="p-2 border-r">Run Sets</th><th className="p-2 border-r">Pts</th><th className="p-2 border-r">Atk</th><th className="p-2 border-r">Blk</th><th className="p-2 border-r">Ace</th><th className="p-2">Digs</th></tr>
+                                         <tr><th className="p-2 border-r border-yellow-200">Exc Sets</th><th className="p-2 border-r border-yellow-200">Run Sets</th><th className="p-2 border-r border-yellow-200">Pts</th><th className="p-2 border-r border-yellow-200">Attack</th><th className="p-2 border-r border-yellow-200">Blocks</th><th className="p-2 border-r border-yellow-200">Ace</th><th className="p-2">Digs</th></tr>
                                      </thead>
                                      <tbody>
                                          <tr className="font-black text-gray-800 text-lg">
-                                             <td className="p-3 border-r">{pogStatsRow.stats.set.exc}</td><td className="p-3 border-r">{pogStatsRow.stats.set.running}</td><td className="p-3 border-r">{pogStatsRow.stats.points}</td><td className="p-3 border-r">{pogStatsRow.stats.spikes.won}</td><td className="p-3 border-r">{pogStatsRow.stats.blocks.won}</td><td className="p-3 border-r">{pogStatsRow.stats.serves.ace}</td><td className="p-3">{pogStatsRow.stats.dig.exc}</td>
+                                             <td className="p-3 border-r border-yellow-100">{pogStatsRow.stats.set.exc}</td>
+                                             <td className="p-3 border-r border-yellow-100">{pogStatsRow.stats.set.running}</td>
+                                             <td className="p-3 border-r border-yellow-100">{pogStatsRow.stats.points}</td>
+                                             <td className="p-3 border-r border-yellow-100">{pogStatsRow.stats.spikes.won}</td>
+                                             <td className="p-3 border-r border-yellow-100">{pogStatsRow.stats.blocks.won}</td>
+                                             <td className="p-3 border-r border-yellow-100">{pogStatsRow.stats.serves.ace}</td>
+                                             <td className="p-3">{pogStatsRow.stats.dig.exc}</td>
                                          </tr>
                                      </tbody>
                                    </>
                                ) : (
                                    <>
                                      <thead className="bg-yellow-100/50 text-gray-600 font-bold uppercase text-[10px]">
-                                         <tr><th className="p-2 border-r">Points</th><th className="p-2 border-r">Attack</th><th className="p-2 border-r">Blocks</th><th className="p-2 border-r">Ace</th><th className="p-2 border-r">Receives</th><th className="p-2">Digs</th></tr>
+                                         <tr><th className="p-2 border-r border-yellow-200">Points</th><th className="p-2 border-r border-yellow-200">Attack</th><th className="p-2 border-r border-yellow-200">Blocks</th><th className="p-2 border-r border-yellow-200">Ace</th><th className="p-2 border-r border-yellow-200">Receives</th><th className="p-2">Digs</th></tr>
                                      </thead>
                                      <tbody>
                                          <tr className="font-black text-gray-800 text-lg">
-                                             <td className="p-3 border-r">{pogStatsRow.stats.points}</td><td className="p-3 border-r">{pogStatsRow.stats.spikes.won}</td><td className="p-3 border-r">{pogStatsRow.stats.blocks.won}</td><td className="p-3 border-r">{pogStatsRow.stats.serves.ace}</td><td className="p-3 border-r">{pogStatsRow.stats.receive.exc}</td><td className="p-3">{pogStatsRow.stats.dig.exc}</td>
+                                             <td className="p-3 border-r border-yellow-100">{pogStatsRow.stats.points}</td>
+                                             <td className="p-3 border-r border-yellow-100">{pogStatsRow.stats.spikes.won}</td>
+                                             <td className="p-3 border-r border-yellow-100">{pogStatsRow.stats.blocks.won}</td>
+                                             <td className="p-3 border-r border-yellow-100">{pogStatsRow.stats.serves.ace}</td>
+                                             <td className="p-3 border-r border-yellow-100">{pogStatsRow.stats.receive.exc}</td>
+                                             <td className="p-3">{pogStatsRow.stats.dig.exc}</td>
                                          </tr>
                                      </tbody>
                                    </>
@@ -471,10 +472,12 @@ export default function MatchSummaryModal() {
                            </table>
                        </div>
                     </div>
-                 ) : null}
+                 ) : (
+                    <div className="text-center text-gray-400 py-10 border rounded-xl">No data for rankings.</div>
+                 )}
 
                  <div className="rounded-xl bg-white border border-gray-200 p-6 shadow-sm">
-                    <div className="font-black text-sm mb-4 text-gray-400 uppercase tracking-widest">Leaders By Position</div>
+                    <div className="font-black text-sm mb-4 text-gray-400 uppercase tracking-widest text-gray-900">Leaders By Position</div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       {(["OH", "OPP", "S", "L", "MB"] as PosBucket[]).map((pos) => {
                         const list = rankingsData.byPosition[pos] ?? [];
@@ -482,11 +485,12 @@ export default function MatchSummaryModal() {
                           <div key={pos} className="p-3 rounded-lg bg-gray-50 border">
                             <div className="flex justify-between items-center mb-2 border-b pb-2">
                               <span className="font-bold text-xs text-gray-500">{pos}</span>
+                              <span className="text-[10px] bg-gray-200 px-1.5 rounded-full text-gray-600">{list.length}</span>
                             </div>
                             {list.length === 0 ? <div className="text-[10px] text-gray-400 italic">None</div> : (
                               list.slice(0, 3).map((p) => (
                                 <div key={p.playerId} className="flex justify-between items-center text-sm py-0.5">
-                                  <span className="font-bold text-gray-800">#{p.jersey} {p.name.split(" ")[0]}</span>
+                                  <span className="font-bold text-gray-800">#{p.jersey} {p.name.split(" ")[0]} <span className="text-gray-400 text-[10px]">({p.setsPlayed}s)</span></span>
                                   <span className="font-mono font-bold text-blue-600">{p.pogPoints.toFixed(1)}</span>
                                 </div>
                               ))
@@ -502,34 +506,96 @@ export default function MatchSummaryModal() {
 
           {/* 3. ROLE STATS */}
           {viewMode === "roles" && (
-            <div className="flex-1 overflow-auto p-4 lg:p-8 bg-gray-50 space-y-8 text-gray-900">
+            <div className="flex-1 overflow-auto p-4 lg:p-8 bg-gray-50 space-y-8">
                <div>
-                 <h3 className="font-black text-sm uppercase tracking-widest text-gray-500 mb-2 pl-1">Attacking Roles</h3>
-                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-x-auto">
+                 <h3 className="font-black text-sm uppercase tracking-widest text-gray-500 mb-2 pl-1">Attacking Roles (OH, OPP, MB)</h3>
+                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-x-auto text-gray-900">
                     <table className="w-full text-center text-xs min-w-[900px]">
                         <thead className="bg-gray-100 text-gray-700 font-bold uppercase tracking-wide border-b border-gray-200">
                             <tr>
                                 <th className="p-3 text-left">Player</th><th className="p-3">Pos</th>
-                                <th className="p-3 bg-yellow-50 text-black">Pts</th>
-                                <th className="p-3 bg-blue-50/50">Atk Kill</th><th className="p-3 bg-blue-50/50 text-red-700">Atk Err</th>
-                                <th className="p-3 bg-green-50/50">Blk Kill</th><th className="p-3 bg-indigo-50/50">Ace</th>
-                                <th className="p-3 bg-orange-50/50">Rec Exc</th>
+                                <th className="p-3 bg-yellow-50 border-l border-r border-gray-200 text-black">Pts</th>
+                                <th className="p-3 bg-blue-50/50">Atk Kill</th><th className="p-3 bg-blue-50/50 text-red-700">Atk Err</th><th className="p-3 bg-blue-50/50 text-gray-500">Tot</th>
+                                <th className="p-3 bg-green-50/50 border-l border-gray-100">Blk Kill</th><th className="p-3 bg-green-50/50 text-red-700">Blk Err</th>
+                                <th className="p-3 bg-indigo-50/50 border-l border-gray-100">Ace</th><th className="p-3 bg-indigo-50/50 text-red-700">Err</th>
+                                <th className="p-3 bg-orange-50/50 border-l border-gray-100">Rec Exc</th><th className="p-3 bg-orange-50/50 text-red-700">Rec Err</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
                             {[...sheetData.rowsA, ...sheetData.rowsB].filter(r => ["OH","OPP","MB"].includes(bucketFromPosition(r.player.position))).map((r, i) => (
-                                <tr key={i} className="hover:bg-gray-50">
+                                <tr key={i} className="hover:bg-gray-50 transition-colors">
                                     <td className="p-3 text-left font-bold text-gray-900">#{r.player.jerseyNumber} {r.player.name}</td>
-                                    <td className="p-3 text-[10px] font-bold text-gray-400">{bucketFromPosition(r.player.position)}</td>
-                                    <td className="p-3 font-black bg-yellow-50 text-base">{r.stats.points}</td>
-                                    <td className="p-3 font-bold text-blue-700">{r.stats.spikes.won}</td><td className="p-3 text-red-500">{r.stats.spikes.error}</td>
-                                    <td className="p-3 font-bold text-green-700">{r.stats.blocks.won}</td><td className="p-3 font-bold text-indigo-700">{r.stats.serves.ace}</td>
-                                    <td className="p-3 font-bold text-green-600">{r.stats.receive.exc}</td>
+                                    <td className="p-3 text-[10px] font-bold text-gray-400 bg-gray-50">{bucketFromPosition(r.player.position)}</td>
+                                    <td className="p-3 font-black bg-yellow-50 border-l border-r border-gray-100 text-blue-700 text-base">{r.stats.points}</td>
+                                    <td className="p-3 font-bold text-blue-700">{r.stats.spikes.won}</td><td className="p-3 text-red-500 font-medium">{r.stats.spikes.error}</td><td className="p-3 text-gray-400">{r.stats.spikes.total}</td>
+                                    <td className="p-3 border-l border-gray-100 font-bold text-green-700">{r.stats.blocks.won}</td><td className="p-3 text-red-500 font-medium">{r.stats.blocks.error}</td>
+                                    <td className="p-3 border-l border-gray-100 font-bold text-indigo-700">{r.stats.serves.ace}</td><td className="p-3 text-red-500 font-medium">{r.stats.serves.error}</td>
+                                    <td className="p-3 border-l border-gray-100 font-bold text-green-600">{r.stats.receive.exc}</td><td className="p-3 text-red-500 font-medium">{r.stats.receive.error}</td>
                                 </tr>
                             ))}
                         </tbody>
                     </table>
                  </div>
+               </div>
+
+               <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 text-gray-900">
+                   <div>
+                        <h3 className="font-black text-sm uppercase tracking-widest text-gray-500 mb-2 pl-1">Setters</h3>
+                        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-x-auto">
+                            <table className="w-full text-center text-xs min-w-[600px]">
+                                <thead className="bg-gray-100 text-gray-700 font-bold uppercase tracking-wide border-b border-gray-200">
+                                    <tr>
+                                        <th className="p-3 text-left">Player</th>
+                                        <th className="p-3 bg-gray-50">Exc Sets</th><th className="p-3 bg-gray-50">Run Sets</th>
+                                        <th className="p-3 bg-yellow-50 border-l border-gray-200">Pts</th>
+                                        <th className="p-3">Atk</th><th className="p-3">Blk</th><th className="p-3">Ace</th><th className="p-3">Dig</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100">
+                                    {[...sheetData.rowsA, ...sheetData.rowsB].filter(r => bucketFromPosition(r.player.position) === "S").map((r, i) => (
+                                        <tr key={i} className="hover:bg-gray-50 transition-colors">
+                                            <td className="p-3 text-left font-bold text-gray-900">#{r.player.jerseyNumber} {r.player.name}</td>
+                                            <td className="p-3 font-bold text-green-600 bg-gray-50">{r.stats.set.exc}</td>
+                                            <td className="p-3 font-bold text-blue-600 bg-gray-50">{r.stats.set.running}</td>
+                                            <td className="p-3 font-black bg-yellow-50 border-l border-gray-100 text-blue-700 text-base">{r.stats.points}</td>
+                                            <td className="p-3 text-blue-700 font-bold">{r.stats.spikes.won}</td>
+                                            <td className="p-3 text-gray-600">{r.stats.blocks.won}</td>
+                                            <td className="p-3 text-gray-600">{r.stats.serves.ace}</td>
+                                            <td className="p-3 text-gray-600">{r.stats.dig.exc}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                   </div>
+
+                   <div>
+                        <h3 className="font-black text-sm uppercase tracking-widest text-gray-500 mb-2 pl-1">Liberos</h3>
+                        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-x-auto">
+                            <table className="w-full text-center text-xs min-w-[600px]">
+                                <thead className="bg-gray-100 text-gray-700 font-bold uppercase tracking-wide border-b border-gray-200">
+                                    <tr>
+                                        <th className="p-3 text-left">Player</th>
+                                        <th className="p-3 bg-orange-50 border-l border-gray-200">Rec Eff</th><th className="p-3 bg-orange-50">Exc</th><th className="p-3 bg-orange-50 text-red-600">Err</th>
+                                        <th className="p-3 bg-blue-50 border-l border-gray-200">Dig Eff</th><th className="p-3 bg-blue-50">Exc</th><th className="p-3 bg-blue-50 text-red-600">Err</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100">
+                                    {[...sheetData.rowsA, ...sheetData.rowsB].filter(r => bucketFromPosition(r.player.position) === "L").map((r, i) => (
+                                        <tr key={i} className="hover:bg-gray-50 transition-colors">
+                                            <td className="p-3 text-left font-bold text-gray-900">#{r.player.jerseyNumber} {r.player.name}</td>
+                                            <td className="p-3 font-black text-orange-700 border-l border-gray-100 bg-orange-50/30">{calcEff(r.stats.receive.exc, r.stats.receive.error, r.stats.receive.total)}</td>
+                                            <td className="p-3 text-green-600 font-bold">{r.stats.receive.exc}</td>
+                                            <td className="p-3 text-red-500 font-medium">{r.stats.receive.error}</td>
+                                            <td className="p-3 font-black text-blue-700 border-l border-gray-100 bg-blue-50/30">{calcEff(r.stats.dig.exc, r.stats.dig.error, r.stats.dig.total)}</td>
+                                            <td className="p-3 text-green-600 font-bold">{r.stats.dig.exc}</td>
+                                            <td className="p-3 text-red-500 font-medium">{r.stats.dig.error}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                   </div>
                </div>
             </div>
           )}
