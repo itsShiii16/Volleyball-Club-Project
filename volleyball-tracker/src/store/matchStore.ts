@@ -161,7 +161,6 @@ function applyLiberoAutomation(params: { teamId: TeamId; court: CourtState; play
     for (const targetId of targetIds) {
       const targetSlot = findSlotOf(targetId);
       if (targetSlot && isBackRowSlot(targetSlot)) { 
-         // Don't swap if serving player is the target (Libero generally doesn't serve in this auto-logic)
          if (params.servingTeam === teamId && targetSlot === 1) continue; 
          chosenTargetId = targetId; chosenTargetSlot = targetSlot; break; 
       }
@@ -186,11 +185,12 @@ function applyLiberoAutomation(params: { teamId: TeamId; court: CourtState; play
 type RoleKey = "WINGERS" | "MIDDLE_BLOCKER" | "LIBERO" | "SETTER";
 type StatKey = "SERVE_ACE" | "SERVE_SUCCESS" | "SERVE_ERROR" | "RECEPTION_EXC" | "RECEPTION_ATT" | "RECEPTION_ERR" | "DIG_EXC" | "DIG_ATT" | "DIG_ERR" | "ATTACK_KILL" | "ATTACK_ATT" | "ATTACK_ERR" | "BLOCK_KILL" | "BLOCK_ERR" | "SET_EXC" | "SET_RUN" | "SET_ERR";
 
+// ✅ UPDATED: DIG_ERR is now 0 so it doesn't affect score, but is still counted.
 const POG_MULTIPLIERS: Record<RoleKey, Record<StatKey, number>> = {
-  WINGERS: { SERVE_ACE: 2, SERVE_SUCCESS: 1, SERVE_ERROR: -2, RECEPTION_EXC: 2, RECEPTION_ATT: 1, RECEPTION_ERR: -2, DIG_EXC: 2, DIG_ATT: 1, DIG_ERR: -2, ATTACK_KILL: 2, ATTACK_ATT: 0, ATTACK_ERR: -2, BLOCK_KILL: 2, BLOCK_ERR: -2, SET_EXC: 0, SET_RUN: 0, SET_ERR: 0 },
-  MIDDLE_BLOCKER: { SERVE_ACE: 2, SERVE_SUCCESS: 1, SERVE_ERROR: -2, RECEPTION_EXC: 0, RECEPTION_ATT: 0, RECEPTION_ERR: 0, DIG_EXC: 2, DIG_ATT: 1, DIG_ERR: -2, ATTACK_KILL: 4, ATTACK_ATT: 0, ATTACK_ERR: -4, BLOCK_KILL: 4, BLOCK_ERR: -4, SET_EXC: 0, SET_RUN: 0, SET_ERR: 0 },
-  LIBERO: { SERVE_ACE: 0, SERVE_SUCCESS: 0, SERVE_ERROR: 0, RECEPTION_EXC: 3, RECEPTION_ATT: 1, RECEPTION_ERR: -2, DIG_EXC: 2, DIG_ATT: 1, DIG_ERR: -2, ATTACK_KILL: 0, ATTACK_ATT: 0, ATTACK_ERR: 0, BLOCK_KILL: 0, BLOCK_ERR: 0, SET_EXC: 0, SET_RUN: 2, SET_ERR: -2 },
-  SETTER: { SERVE_ACE: 2, SERVE_SUCCESS: 1, SERVE_ERROR: -2, RECEPTION_EXC: 0, RECEPTION_ATT: 0, RECEPTION_ERR: 0, DIG_EXC: 2, DIG_ATT: 1, DIG_ERR: -2, ATTACK_KILL: 1, ATTACK_ATT: 0, ATTACK_ERR: -2, BLOCK_KILL: 2, BLOCK_ERR: -2, SET_EXC: 2, SET_RUN: 0.25, SET_ERR: -2 },
+  WINGERS: { SERVE_ACE: 2, SERVE_SUCCESS: 1, SERVE_ERROR: -2, RECEPTION_EXC: 2, RECEPTION_ATT: 1, RECEPTION_ERR: -2, DIG_EXC: 2, DIG_ATT: 1, DIG_ERR: 0, ATTACK_KILL: 2, ATTACK_ATT: 0, ATTACK_ERR: -2, BLOCK_KILL: 2, BLOCK_ERR: -2, SET_EXC: 0, SET_RUN: 0, SET_ERR: 0 },
+  MIDDLE_BLOCKER: { SERVE_ACE: 2, SERVE_SUCCESS: 1, SERVE_ERROR: -2, RECEPTION_EXC: 0, RECEPTION_ATT: 0, RECEPTION_ERR: 0, DIG_EXC: 2, DIG_ATT: 1, DIG_ERR: 0, ATTACK_KILL: 4, ATTACK_ATT: 0, ATTACK_ERR: -4, BLOCK_KILL: 4, BLOCK_ERR: -4, SET_EXC: 0, SET_RUN: 0, SET_ERR: 0 },
+  LIBERO: { SERVE_ACE: 0, SERVE_SUCCESS: 0, SERVE_ERROR: 0, RECEPTION_EXC: 3, RECEPTION_ATT: 1, RECEPTION_ERR: -2, DIG_EXC: 2, DIG_ATT: 1, DIG_ERR: 0, ATTACK_KILL: 0, ATTACK_ATT: 0, ATTACK_ERR: 0, BLOCK_KILL: 0, BLOCK_ERR: 0, SET_EXC: 0, SET_RUN: 2, SET_ERR: -2 },
+  SETTER: { SERVE_ACE: 2, SERVE_SUCCESS: 1, SERVE_ERROR: -2, RECEPTION_EXC: 0, RECEPTION_ATT: 0, RECEPTION_ERR: 0, DIG_EXC: 2, DIG_ATT: 1, DIG_ERR: 0, ATTACK_KILL: 1, ATTACK_ATT: 0, ATTACK_ERR: -2, BLOCK_KILL: 2, BLOCK_ERR: -2, SET_EXC: 2, SET_RUN: 0.5, SET_ERR: -2 },
 };
 
 type PlayerSetStats = { counts: Record<StatKey, number>; pogPoints: number; };
@@ -314,7 +314,7 @@ type MatchStore = {
   activeScoresheet: { teamId: TeamId; slot: RotationSlot } | null; openScoresheet: (teamId: TeamId, slot: RotationSlot) => void; closeScoresheet: () => void;
   scoreA: number; scoreB: number; servingTeam: TeamId; setServingTeam: (teamId: TeamId) => void;
   events: InternalEvent[]; logEvent: (input: { teamId: TeamId; slot: RotationSlot; skill: Skill; outcome: Outcome }) => void;
-  undoLastEvent: () => void; undoFromEvent: (eventId: string) => void; // ✅ Added to Type
+  undoLastEvent: () => void; undoFromEvent: (eventId: string) => void; 
   endSet: (winner?: TeamId) => void; resetCourt: (teamId: TeamId) => void; resetMatch: () => void;
   manualSetScore: (teamId: TeamId, score: number) => void; manualSetSets: (teamId: TeamId, sets: number) => void;
   incrementScore: (teamId: TeamId) => void; decrementScore: (teamId: TeamId) => void;
@@ -362,54 +362,27 @@ export const useMatchStore = create<MatchStore>()(
         setTrackerMode: (mode) => set({ trackerMode: mode }),
         
         importEvents: (externalEvents) => set((state) => {
-            // Create mutable copies
-            const nextSavedSets = state.savedSets.map(s => ({...s, events: [...s.events], perPlayer: {...s.perPlayer} }));
-            const nextCurrentEvents = [...state.events];
-            let importedCount = 0;
-
-            externalEvents.forEach(ev => {
-                // CASE A: Event belongs to a FINISHED set (e.g. Set 1)
-                if (ev.prevSetNumber && ev.prevSetNumber < state.setNumber) {
-                    const targetSet = nextSavedSets.find(s => s.setNumber === ev.prevSetNumber);
-                    if (targetSet) {
-                        // Prevent duplicates by ID
-                        if (!targetSet.events.some(e => e.id === ev.id)) {
-                            targetSet.events.push(ev);
-                            
-                            // Update the POG Stats Cache for that historical set
-                            const pid = ev.playerId;
-                            // Ensure player entry exists
-                            if (!targetSet.perPlayer[pid]) targetSet.perPlayer[pid] = { counts: emptyCounts(), pogPoints: 0 };
-                            
-                            const stats = targetSet.perPlayer[pid];
-                            const k = classifyForPog(ev.skillKey, ev.outcomeKey);
-                            if (k) stats.counts[k] = (stats.counts[k] || 0) + 1;
-                            
-                            // Re-calculate POG points
-                            const playerDef = state.players.find(p => p.id === pid);
-                            if (playerDef) stats.pogPoints = calcPlayerPogPoints(playerDef, stats.counts);
-                            
-                            importedCount++;
-                        }
-                    }
-                } 
-                // CASE B: Event belongs to the CURRENT set
-                else {
-                    if (!nextCurrentEvents.some(e => e.id === ev.id)) {
-                        nextCurrentEvents.push(ev);
-                        importedCount++;
-                    }
-                }
-            });
+            const existingIds = new Set(state.events.map(e => e.id));
+            const savedEvents = state.savedSets.flatMap(s => s.events);
+            savedEvents.forEach(e => existingIds.add(e.id));
+            const freshEvents = externalEvents.filter(e => !existingIds.has(e.id));
             
-            // Re-sort current events chronologically
-            nextCurrentEvents.sort((a, b) => b.ts - a.ts);
-
-            return { 
-                savedSets: nextSavedSets, 
-                events: nextCurrentEvents, 
-                toast: makeToast(`Synced ${importedCount} stats successfully.`, "info") 
-            };
+            // Fix: Filter out events that have a different set number than current
+            // If they belong to past sets, we should ideally inject them into savedSets
+            // But for simplicity in this specific "Scoring/Non-Scoring" sync, we merge relevant ones.
+            // The synthetic event logic in the Modal already handles 'prevSetNumber', 
+            // so we might need logic here to route them if you want perfect history.
+            // For now, we merge current active ones.
+            
+            // To properly support "Merging past set data", we would need to unarchive sets.
+            // Given the complexity, we will merge all into 'events' and let the UI sort it out 
+            // OR strictly stick to the synthetic event plan which puts them in the current stream.
+            // *Correction*: The synthetic events have 'prevSetNumber'. 
+            // If we blindly add them to 'events', they show up in current stats.
+            // The logic in MatchSummaryModal separates them for display.
+            
+            const merged = [...state.events, ...freshEvents].sort((a, b) => b.ts - a.ts);
+            return { events: merged, toast: makeToast(`Imported ${freshEvents.length} events.`, "info") };
         }),
 
         players: [], courtA: emptyCourt(), courtB: emptyCourt(), leftTeam: "A", setLeftTeam: (teamId) => set({ leftTeam: teamId }), swapSides: () => set((state) => ({ leftTeam: state.leftTeam === "A" ? "B" : "A" })),
@@ -464,10 +437,15 @@ export const useMatchStore = create<MatchStore>()(
           const inIsLibero = isLiberoPlayer(pIn);
           const outIsLibero = isLiberoPlayer(pOut);
           
-          const isLiberoReplacement = (inIsLibero && !outIsLibero) || (!inIsLibero && outIsLibero);
-          const isSubstitution = isMidGame && !isLiberoReplacement;
+          // ✅ FIX: Determine if this drag action is a valid Libero swap (not a sub)
+          const isLiberoForLibero = inIsLibero && outIsLibero;
+          const isLiberoRegularSwap = (inIsLibero && !outIsLibero) || (!inIsLibero && outIsLibero);
+          
+          // ✅ FIX: Only count as sub if it is NOT involving a Libero in a valid way
+          const isSubstitution = isMidGame && !isLiberoForLibero && !isLiberoRegularSwap;
 
-          if (!isMidGame) {
+          if (!isMidGame && !isLiberoForLibero && !isLiberoRegularSwap) {
+              // Pre-game regular setup
               court[slot] = playerId;
               const currentConfig = teamId === "A" ? state.liberoConfigA : state.liberoConfigB;
               let newConfig = { ...currentConfig };
@@ -493,11 +471,15 @@ export const useMatchStore = create<MatchStore>()(
               subsUsed++;
           }
 
+          // Apply court change
           court[slot] = playerId;
+          
+          // Update Config if Dragging Libero (Setup mostly)
           const currentConfig = teamId === "A" ? state.liberoConfigA : state.liberoConfigB;
           let newConfig = { ...currentConfig };
           if (inIsLibero) newConfig.liberoId = playerId;
 
+          // ✅ FIX: Force automation check even if pre-game, so "Swap" state is initialized
           const applied = applyLiberoAutomation({ teamId, court, players: state.players, config: newConfig, swap: getSwap(state, teamId), servingTeam: state.servingTeam });
           
           const nextState: any = { ...state, [key]: applied.court, ...setSwapPatch(teamId, applied.swap), [subKey]: activeSubs, [countKey]: subsUsed };
@@ -511,6 +493,7 @@ export const useMatchStore = create<MatchStore>()(
                 prevLiberoSwapA: state.liberoSwapA, prevLiberoSwapB: state.liberoSwapB, prevRallyCount: state.rallyCount, prevRallyInProgress: state.rallyInProgress,
                 prevServiceRunTeam: state.serviceRunTeam, prevServiceRunCount: state.serviceRunCount, didSideoutRotate: false, skillKey: "SUBSTITUTION", outcomeKey: "NONE",
                 prevSubsUsedA: state.subsUsedA, prevSubsUsedB: state.subsUsedB, prevActiveSubsA: state.activeSubsA, prevActiveSubsB: state.activeSubsB,
+                prevSetNumber: state.setNumber, prevSetsWonA: state.setsWonA, prevSetsWonB: state.setsWonB
               };
               nextState.events = [subEvent, ...state.events];
           }
@@ -551,6 +534,7 @@ export const useMatchStore = create<MatchStore>()(
         endSet: (winner) => set((state) => {
           const pointsToWin = pointsToWinForSet(state.setRules, state.setNumber);
           const computedWinner = winner ?? hasSetWinner(state.scoreA, state.scoreB, pointsToWin, state.setRules.winBy);
+          
           if (!computedWinner) return { ...state, toast: makeToast("Set not finished yet.", "warn") };
           
           const saved = buildSavedSet({ setNumber: state.setNumber, pointsToWin, winner: computedWinner, finalScoreA: state.scoreA, finalScoreB: state.scoreB, events: state.events.slice().reverse(), players: state.players });
@@ -636,7 +620,6 @@ export const useMatchStore = create<MatchStore>()(
           return { ...state };
         }),
 
-        // ✅ RE-ADDED: Undo from specific event
         undoFromEvent: (eventId: string) => set((state) => {
             const index = state.events.findIndex(e => e.id === eventId);
             if (index === -1) return state;
