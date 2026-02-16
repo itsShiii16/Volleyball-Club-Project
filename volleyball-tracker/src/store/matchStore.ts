@@ -125,9 +125,7 @@ function applyLiberoAutomation(params: { teamId: TeamId; court: CourtState; play
     nextSwap.slot = params.rotationMapping === "FORWARD" ? mapSlotForward(nextSwap.slot) : mapSlotBackward(nextSwap.slot);
   }
 
-  // Active Swap Logic
   if (nextSwap.active && nextSwap.slot && nextSwap.liberoId && nextSwap.replacedPlayerId) {
-    // 1. Check if Libero rotated to front
     if (isFrontRowSlot(nextSwap.slot)) {
       if (nextCourt[nextSwap.slot] === nextSwap.liberoId || nextCourt[nextSwap.slot] === config.liberoId || nextCourt[nextSwap.slot] === config.secondLiberoId) {
           nextCourt[nextSwap.slot] = nextSwap.replacedPlayerId;
@@ -135,7 +133,6 @@ function applyLiberoAutomation(params: { teamId: TeamId; court: CourtState; play
       return { court: nextCourt, swap: defaultLiberoSwap(), toast: makeToast(`Auto-sub: ${teamId} Libero out (Front Row).`, "info") };
     }
     
-    // 2. Dual Libero Switch (Serve vs Receive)
     if (nextSwap.active && nextSwap.liberoId !== targetLiberoId) {
         if (nextCourt[nextSwap.slot] === nextSwap.liberoId) {
             nextCourt[nextSwap.slot] = targetLiberoId;
@@ -153,7 +150,6 @@ function applyLiberoAutomation(params: { teamId: TeamId; court: CourtState; play
     return { court: nextCourt, swap: nextSwap };
   }
 
-  // New Swap Logic (Libero Entry)
   if (!nextSwap.active) {
     let chosenTargetId: string | null = null;
     let chosenTargetSlot: RotationSlot | null = null;
@@ -185,7 +181,6 @@ function applyLiberoAutomation(params: { teamId: TeamId; court: CourtState; play
 type RoleKey = "WINGERS" | "MIDDLE_BLOCKER" | "LIBERO" | "SETTER";
 type StatKey = "SERVE_ACE" | "SERVE_SUCCESS" | "SERVE_ERROR" | "RECEPTION_EXC" | "RECEPTION_ATT" | "RECEPTION_ERR" | "DIG_EXC" | "DIG_ATT" | "DIG_ERR" | "ATTACK_KILL" | "ATTACK_ATT" | "ATTACK_ERR" | "BLOCK_KILL" | "BLOCK_ERR" | "SET_EXC" | "SET_RUN" | "SET_ERR";
 
-// ✅ UPDATED: DIG_ERR is now 0 so it doesn't affect score, but is still counted.
 const POG_MULTIPLIERS: Record<RoleKey, Record<StatKey, number>> = {
   WINGERS: { SERVE_ACE: 2, SERVE_SUCCESS: 1, SERVE_ERROR: -2, RECEPTION_EXC: 2, RECEPTION_ATT: 1, RECEPTION_ERR: -2, DIG_EXC: 2, DIG_ATT: 1, DIG_ERR: 0, ATTACK_KILL: 2, ATTACK_ATT: 0, ATTACK_ERR: -2, BLOCK_KILL: 2, BLOCK_ERR: -2, SET_EXC: 0, SET_RUN: 0, SET_ERR: 0 },
   MIDDLE_BLOCKER: { SERVE_ACE: 2, SERVE_SUCCESS: 1, SERVE_ERROR: -2, RECEPTION_EXC: 0, RECEPTION_ATT: 0, RECEPTION_ERR: 0, DIG_EXC: 2, DIG_ATT: 1, DIG_ERR: 0, ATTACK_KILL: 4, ATTACK_ATT: 0, ATTACK_ERR: -4, BLOCK_KILL: 4, BLOCK_ERR: -4, SET_EXC: 0, SET_RUN: 0, SET_ERR: 0 },
@@ -366,21 +361,6 @@ export const useMatchStore = create<MatchStore>()(
             const savedEvents = state.savedSets.flatMap(s => s.events);
             savedEvents.forEach(e => existingIds.add(e.id));
             const freshEvents = externalEvents.filter(e => !existingIds.has(e.id));
-            
-            // Fix: Filter out events that have a different set number than current
-            // If they belong to past sets, we should ideally inject them into savedSets
-            // But for simplicity in this specific "Scoring/Non-Scoring" sync, we merge relevant ones.
-            // The synthetic event logic in the Modal already handles 'prevSetNumber', 
-            // so we might need logic here to route them if you want perfect history.
-            // For now, we merge current active ones.
-            
-            // To properly support "Merging past set data", we would need to unarchive sets.
-            // Given the complexity, we will merge all into 'events' and let the UI sort it out 
-            // OR strictly stick to the synthetic event plan which puts them in the current stream.
-            // *Correction*: The synthetic events have 'prevSetNumber'. 
-            // If we blindly add them to 'events', they show up in current stats.
-            // The logic in MatchSummaryModal separates them for display.
-            
             const merged = [...state.events, ...freshEvents].sort((a, b) => b.ts - a.ts);
             return { events: merged, toast: makeToast(`Imported ${freshEvents.length} events.`, "info") };
         }),
@@ -394,7 +374,7 @@ export const useMatchStore = create<MatchStore>()(
           const prevCfg = teamId === "A" ? state.liberoConfigA : state.liberoConfigB;
           const next = { ...prevCfg, ...cfg };
           if (cfg.replacementIds !== undefined) {
-             next.replacementIds = Array.from(new Set(cfg.replacementIds.filter(Boolean))).slice(0, 2);
+              next.replacementIds = Array.from(new Set(cfg.replacementIds.filter(Boolean))).slice(0, 2);
           }
           return teamId === "A" ? { ...state, liberoConfigA: next } : { ...state, liberoConfigB: next };
         }),
@@ -437,24 +417,9 @@ export const useMatchStore = create<MatchStore>()(
           const inIsLibero = isLiberoPlayer(pIn);
           const outIsLibero = isLiberoPlayer(pOut);
           
-          // ✅ FIX: Determine if this drag action is a valid Libero swap (not a sub)
           const isLiberoForLibero = inIsLibero && outIsLibero;
           const isLiberoRegularSwap = (inIsLibero && !outIsLibero) || (!inIsLibero && outIsLibero);
-          
-          // ✅ FIX: Only count as sub if it is NOT involving a Libero in a valid way
           const isSubstitution = isMidGame && !isLiberoForLibero && !isLiberoRegularSwap;
-
-          if (!isMidGame && !isLiberoForLibero && !isLiberoRegularSwap) {
-              // Pre-game regular setup
-              court[slot] = playerId;
-              const currentConfig = teamId === "A" ? state.liberoConfigA : state.liberoConfigB;
-              let newConfig = { ...currentConfig };
-              if (inIsLibero) newConfig.liberoId = playerId;
-              const nextState: any = { ...state, [key]: court };
-              if (teamId === "A") nextState.liberoConfigA = newConfig;
-              else nextState.liberoConfigB = newConfig;
-              return nextState;
-          }
 
           if (isSubstitution) {
               if (subsUsed >= 6) return { ...state, toast: makeToast("Substitution limit reached.", "error") };
@@ -471,15 +436,12 @@ export const useMatchStore = create<MatchStore>()(
               subsUsed++;
           }
 
-          // Apply court change
           court[slot] = playerId;
           
-          // Update Config if Dragging Libero (Setup mostly)
           const currentConfig = teamId === "A" ? state.liberoConfigA : state.liberoConfigB;
           let newConfig = { ...currentConfig };
           if (inIsLibero) newConfig.liberoId = playerId;
 
-          // ✅ FIX: Force automation check even if pre-game, so "Swap" state is initialized
           const applied = applyLiberoAutomation({ teamId, court, players: state.players, config: newConfig, swap: getSwap(state, teamId), servingTeam: state.servingTeam });
           
           const nextState: any = { ...state, [key]: applied.court, ...setSwapPatch(teamId, applied.swap), [subKey]: activeSubs, [countKey]: subsUsed };
@@ -507,10 +469,8 @@ export const useMatchStore = create<MatchStore>()(
         
         rotateTeam: (teamId) => set((state) => {
           const key = teamId === "A" ? "courtA" : "courtB";
-          const isLeft = state.leftTeam === teamId;
-          const rotated = isLeft ? rotateCourtForward(state[key]) : rotateCourtBackward(state[key]);
-          const mapping = isLeft ? "FORWARD" : "BACKWARD";
-          const applied = applyLiberoAutomation({ teamId, court: rotated, players: state.players, config: getConfig(state, teamId), swap: getSwap(state, teamId), rotationMapping: mapping, servingTeam: state.servingTeam });
+          const rotated = rotateCourtForward(state[key]);
+          const applied = applyLiberoAutomation({ teamId, court: rotated, players: state.players, config: getConfig(state, teamId), swap: getSwap(state, teamId), rotationMapping: "FORWARD", servingTeam: state.servingTeam });
           if (hasIllegalLiberoFrontRow(applied.court, state.players)) return { ...state, toast: makeToast("Illegal rotation.", "error") };
           const next: any = { ...state, [key]: applied.court, ...setSwapPatch(teamId, applied.swap) };
           if (applied.toast) next.toast = applied.toast;
@@ -518,10 +478,8 @@ export const useMatchStore = create<MatchStore>()(
         }),
         rotateTeamBackward: (teamId) => set((state) => {
           const key = teamId === "A" ? "courtA" : "courtB";
-          const isLeft = state.leftTeam === teamId;
-          const rotated = isLeft ? rotateCourtBackward(state[key]) : rotateCourtForward(state[key]);
-          const mapping = isLeft ? "BACKWARD" : "FORWARD";
-          const applied = applyLiberoAutomation({ teamId, court: rotated, players: state.players, config: getConfig(state, teamId), swap: getSwap(state, teamId), rotationMapping: mapping, servingTeam: state.servingTeam });
+          const rotated = rotateCourtBackward(state[key]);
+          const applied = applyLiberoAutomation({ teamId, court: rotated, players: state.players, config: getConfig(state, teamId), swap: getSwap(state, teamId), rotationMapping: "BACKWARD", servingTeam: state.servingTeam });
           if (hasIllegalLiberoFrontRow(applied.court, state.players)) return { ...state, toast: makeToast("Illegal rotation.", "error") };
           const next: any = { ...state, [key]: applied.court, ...setSwapPatch(teamId, applied.swap) };
           if (applied.toast) next.toast = applied.toast;
@@ -534,38 +492,26 @@ export const useMatchStore = create<MatchStore>()(
         endSet: (winner) => set((state) => {
           const pointsToWin = pointsToWinForSet(state.setRules, state.setNumber);
           const computedWinner = winner ?? hasSetWinner(state.scoreA, state.scoreB, pointsToWin, state.setRules.winBy);
-          
           if (!computedWinner) return { ...state, toast: makeToast("Set not finished yet.", "warn") };
-          
           const saved = buildSavedSet({ setNumber: state.setNumber, pointsToWin, winner: computedWinner, finalScoreA: state.scoreA, finalScoreB: state.scoreB, events: state.events.slice().reverse(), players: state.players });
           const nextSetsWonA = computedWinner === "A" ? state.setsWonA + 1 : state.setsWonA;
           const nextSetsWonB = computedWinner === "B" ? state.setsWonB + 1 : state.setsWonB;
-          
           const setsNeeded = Math.ceil(state.setRules.bestOf / 2);
           const matchOver = nextSetsWonA >= setsNeeded || nextSetsWonB >= setsNeeded;
-
-          if (matchOver) {
-             return { ...state, savedSets: [saved, ...state.savedSets], setsWonA: nextSetsWonA, setsWonB: nextSetsWonB, events: [], toast: makeToast(`Match Over! Winner: Team ${computedWinner}`, "info") };
-          }
-
+          if (matchOver) return { ...state, savedSets: [saved, ...state.savedSets], setsWonA: nextSetsWonA, setsWonB: nextSetsWonB, events: [], toast: makeToast(`Match Over!`, "info") };
           const after = resetAfterSet(state, computedWinner === "A" ? "B" : "A");
-          return { ...state, savedSets: [saved, ...state.savedSets], setsWonA: nextSetsWonA, setsWonB: nextSetsWonB, setNumber: state.setNumber + 1, ...after as any, toast: makeToast(`Set ${state.setNumber} finished.`, "info") };
+          return { ...state, savedSets: [saved, ...state.savedSets], setsWonA: nextSetsWonA, setsWonB: nextSetsWonB, setNumber: state.setNumber + 1, ...after as any, toast: makeToast(`Set finished.`, "info") };
         }),
 
         logEvent: ({ teamId, slot, skill, outcome }) => set((state) => {
           const setsNeeded = Math.ceil(state.setRules.bestOf / 2);
-          if (state.setsWonA >= setsNeeded || state.setsWonB >= setsNeeded) {
-              return { ...state, toast: makeToast("Match ended. No more events allowed.", "warn") };
-          }
-
+          if (state.setsWonA >= setsNeeded || state.setsWonB >= setsNeeded) return { ...state, toast: makeToast("Match ended.", "warn") };
           const court = teamId === "A" ? state.courtA : state.courtB;
           const playerId = court[slot];
           if (!playerId) return state;
-
           const skillKey = normKey(skill);
           const outcomeKey = normKey(outcome);
           if (skillKey.includes("BLOCK") && isBackRowSlot(slot)) return { ...state, toast: makeToast("Back-row block disallowed.", "error") };
-
           let pointWinner: TeamId | undefined;
           const isError = outcomeKey.includes("ERROR") || outcomeKey.includes("FAULT") || outcomeKey.includes("OUT") || outcomeKey.includes("NET");
           if (isError) pointWinner = opponentOf(teamId);
@@ -573,7 +519,6 @@ export const useMatchStore = create<MatchStore>()(
             const isWin = outcomeKey.includes("KILL") || outcomeKey.includes("ACE") || outcomeKey.includes("POINT");
             if ((skillKey.includes("SERVE") || skillKey.includes("SPIKE") || skillKey.includes("BLOCK")) && isWin) pointWinner = teamId;
           }
-
           const e: InternalEvent = {
             id: crypto.randomUUID(), ts: Date.now(), teamId, playerId, slot, skill, outcome, pointWinner, trackerMode: state.trackerMode,
             prevScoreA: state.scoreA, prevScoreB: state.scoreB, prevServingTeam: state.servingTeam, prevCourtA: state.courtA, prevCourtB: state.courtB,
@@ -588,62 +533,23 @@ export const useMatchStore = create<MatchStore>()(
         undoLastEvent: () => set((state) => {
           if (state.events.length === 0 && state.savedSets.length > 0) {
              const lastSet = state.savedSets[0];
-             const remainingSaved = state.savedSets.slice(1);
              const restoredEvents = [...lastSet.events].reverse();
-             
-             return {
-                 ...state,
-                 savedSets: remainingSaved,
-                 scoreA: lastSet.finalScoreA,
-                 scoreB: lastSet.finalScoreB,
-                 setNumber: lastSet.setNumber,
-                 setsWonA: lastSet.winner === "A" ? state.setsWonA - 1 : state.setsWonA,
-                 setsWonB: lastSet.winner === "B" ? state.setsWonB - 1 : state.setsWonB,
-                 events: restoredEvents,
-                 toast: makeToast(`Set ${lastSet.setNumber} Re-opened. Undo again to remove point.`, "info")
-             };
+             return { ...state, savedSets: state.savedSets.slice(1), scoreA: lastSet.finalScoreA, scoreB: lastSet.finalScoreB, setNumber: lastSet.setNumber, setsWonA: lastSet.winner === "A" ? state.setsWonA - 1 : state.setsWonA, setsWonB: lastSet.winner === "B" ? state.setsWonB - 1 : state.setsWonB, events: restoredEvents, toast: makeToast(`Set Re-opened.`, "info") };
           }
-
           if (state.events.length > 0) {
             const last = state.events[0];
-            const scoreChanged = (state.scoreA !== last.prevScoreA || state.scoreB !== last.prevScoreB);
-            
-            if (last.skillKey === "SUBSTITUTION") {
-                return { ...state, events: state.events.slice(1), subsUsedA: last.prevSubsUsedA, subsUsedB: last.prevSubsUsedB, activeSubsA: last.prevActiveSubsA, activeSubsB: last.prevActiveSubsB, courtA: last.prevCourtA, courtB: last.prevCourtB };
-            }
-            if (scoreChanged) {
-                return { ...state, scoreA: last.prevScoreA, scoreB: last.prevScoreB, servingTeam: last.prevServingTeam, courtA: last.prevCourtA, courtB: last.prevCourtB, liberoSwapA: last.prevLiberoSwapA, liberoSwapB: last.prevLiberoSwapB, rallyCount: last.prevRallyCount, rallyInProgress: last.prevRallyInProgress, serviceRunTeam: last.prevServiceRunTeam, serviceRunCount: last.prevServiceRunCount, events: state.events.slice(1), subsUsedA: last.prevSubsUsedA, subsUsedB: last.prevSubsUsedB, activeSubsA: last.prevActiveSubsA, activeSubsB: last.prevActiveSubsB };
-            } else {
-                return { ...state, events: state.events.slice(1) };
-            }
+            // ✅ UNDO RESTORES ROTATION
+            return { ...state, scoreA: last.prevScoreA, scoreB: last.prevScoreB, servingTeam: last.prevServingTeam, courtA: last.prevCourtA, courtB: last.prevCourtB, liberoSwapA: last.prevLiberoSwapA, liberoSwapB: last.prevLiberoSwapB, rallyCount: last.prevRallyCount, rallyInProgress: last.prevRallyInProgress, serviceRunTeam: last.prevServiceRunTeam, serviceRunCount: last.prevServiceRunCount, events: state.events.slice(1), subsUsedA: last.prevSubsUsedA, subsUsedB: last.prevSubsUsedB, activeSubsA: last.prevActiveSubsA, activeSubsB: last.prevActiveSubsB };
           }
-          return { ...state };
+          return state;
         }),
 
         undoFromEvent: (eventId: string) => set((state) => {
             const index = state.events.findIndex(e => e.id === eventId);
             if (index === -1) return state;
             const targetEvent = state.events[index];
-            return {
-                ...state,
-                scoreA: targetEvent.prevScoreA,
-                scoreB: targetEvent.prevScoreB,
-                servingTeam: targetEvent.prevServingTeam,
-                courtA: targetEvent.prevCourtA,
-                courtB: targetEvent.prevCourtB,
-                liberoSwapA: targetEvent.prevLiberoSwapA,
-                liberoSwapB: targetEvent.prevLiberoSwapB,
-                rallyCount: targetEvent.prevRallyCount,
-                rallyInProgress: targetEvent.prevRallyInProgress,
-                serviceRunTeam: targetEvent.prevServiceRunTeam,
-                serviceRunCount: targetEvent.prevServiceRunCount,
-                subsUsedA: targetEvent.prevSubsUsedA,
-                subsUsedB: targetEvent.prevSubsUsedB,
-                activeSubsA: targetEvent.prevActiveSubsA,
-                activeSubsB: targetEvent.prevActiveSubsB,
-                events: state.events.slice(index + 1),
-                toast: makeToast("Restored match state.", "info")
-            };
+            // ✅ UNDO RESTORES ROTATION
+            return { ...state, scoreA: targetEvent.prevScoreA, scoreB: targetEvent.prevScoreB, servingTeam: targetEvent.prevServingTeam, courtA: targetEvent.prevCourtA, courtB: targetEvent.prevCourtB, liberoSwapA: targetEvent.prevLiberoSwapA, liberoSwapB: targetEvent.prevLiberoSwapB, rallyCount: targetEvent.prevRallyCount, rallyInProgress: targetEvent.prevRallyInProgress, serviceRunTeam: targetEvent.prevServiceRunTeam, serviceRunCount: targetEvent.prevServiceRunCount, subsUsedA: targetEvent.prevSubsUsedA, subsUsedB: targetEvent.prevSubsUsedB, activeSubsA: targetEvent.prevActiveSubsA, activeSubsB: targetEvent.prevActiveSubsB, events: state.events.slice(index + 1), toast: makeToast("State restored.", "info") };
         }),
 
         resetCourt: (teamId) => set((state) => { 
@@ -657,22 +563,16 @@ export const useMatchStore = create<MatchStore>()(
 
         incrementScore: (teamId: TeamId) => set((state) => {
           const setsNeeded = Math.ceil(state.setRules.bestOf / 2);
-          if (state.setsWonA >= setsNeeded || state.setsWonB >= setsNeeded) {
-              return { ...state, toast: makeToast("Match is over.", "warn") };
-          }
-
-          let { scoreA, scoreB, servingTeam, courtA, courtB, liberoConfigA, liberoConfigB, liberoSwapA, liberoSwapB, players } = state;
+          if (state.setsWonA >= setsNeeded || state.setsWonB >= setsNeeded) return { ...state, toast: makeToast("Match ended.", "warn") };
+          let { scoreA, scoreB, servingTeam, courtA, courtB, liberoConfigA, liberoConfigB, players } = state;
           let nextScoreA = scoreA; let nextScoreB = scoreB; let nextServingTeam = servingTeam;
           let nextCourtA = { ...courtA }; let nextCourtB = { ...courtB };
-          let nextSwapA = { ...liberoSwapA }; let nextSwapB = { ...liberoSwapB };
-          
+          let nextSwapA = { ...state.liberoSwapA }; let nextSwapB = { ...state.liberoSwapB };
           if (teamId === "A") nextScoreA++; else nextScoreB++;
-          
           if (teamId !== servingTeam) {
             nextServingTeam = teamId;
-            const isLeft = state.leftTeam === teamId;
-            const rotated = isLeft ? rotateCourtForward(teamId === "A" ? nextCourtA : nextCourtB) : rotateCourtBackward(teamId === "A" ? nextCourtA : nextCourtB);
-            const applied = applyLiberoAutomation({ teamId, court: rotated, players, config: teamId === "A" ? liberoConfigA : liberoConfigB, swap: getSwap(state, teamId), rotationMapping: isLeft ? "FORWARD" : "BACKWARD", servingTeam: nextServingTeam });
+            const rotated = rotateCourtForward(teamId === "A" ? nextCourtA : nextCourtB);
+            const applied = applyLiberoAutomation({ teamId, court: rotated, players, config: teamId === "A" ? liberoConfigA : liberoConfigB, swap: getSwap(state, teamId), rotationMapping: "FORWARD", servingTeam: nextServingTeam });
             if (teamId === "A") { nextCourtA = applied.court; nextSwapA = applied.swap; } else { nextCourtB = applied.court; nextSwapB = applied.swap; }
             const opp = opponentOf(teamId);
             const appliedL = applyLiberoAutomation({ teamId: opp, court: opp === "A" ? nextCourtA : nextCourtB, players, config: getConfig(state, opp), swap: getSwap(state, opp), servingTeam: nextServingTeam });
@@ -684,53 +584,43 @@ export const useMatchStore = create<MatchStore>()(
              const appliedL = applyLiberoAutomation({ teamId: opp, court: opp === "A" ? nextCourtA : nextCourtB, players, config: getConfig(state, opp), swap: getSwap(state, opp), servingTeam: nextServingTeam });
              if (opp === "A") { nextCourtA = appliedL.court; nextSwapA = appliedL.swap; } else { nextCourtB = appliedL.court; nextSwapB = appliedL.swap; }
           }
-
           const newState = { ...state, scoreA: nextScoreA, scoreB: nextScoreB, servingTeam: nextServingTeam, courtA: nextCourtA, courtB: nextCourtB, liberoSwapA: nextSwapA, liberoSwapB: nextSwapB };
-
-          // ✅ AUTO END SET CHECK
           const pointsToWin = pointsToWinForSet(state.setRules, state.setNumber);
           const winner = hasSetWinner(nextScoreA, nextScoreB, pointsToWin, state.setRules.winBy);
-          
           if (winner) {
              const saved = buildSavedSet({ setNumber: state.setNumber, pointsToWin, winner, finalScoreA: nextScoreA, finalScoreB: nextScoreB, events: state.events.slice().reverse(), players: state.players });
              const nextSetsWonA = winner === "A" ? state.setsWonA + 1 : state.setsWonA;
              const nextSetsWonB = winner === "B" ? state.setsWonB + 1 : state.setsWonB;
-             
-             const matchOver = nextSetsWonA >= setsNeeded || nextSetsWonB >= setsNeeded;
-             if (matchOver) {
-                 return { ...newState, savedSets: [saved, ...state.savedSets], setsWonA: nextSetsWonA, setsWonB: nextSetsWonB, events: [], toast: makeToast(`Match Over! Winner: Team ${winner}`, "info") };
-             }
-
+             if (nextSetsWonA >= setsNeeded || nextSetsWonB >= setsNeeded) return { ...newState, savedSets: [saved, ...state.savedSets], setsWonA: nextSetsWonA, setsWonB: nextSetsWonB, events: [], toast: makeToast(`Match Over!`, "info") };
              const after = resetAfterSet(newState as MatchStore, winner === "A" ? "B" : "A");
-             return { ...newState, savedSets: [saved, ...state.savedSets], setsWonA: nextSetsWonA, setsWonB: nextSetsWonB, setNumber: state.setNumber + 1, ...after as any, toast: makeToast(`Set ${state.setNumber} won by ${winner}`, "info") };
+             return { ...newState, savedSets: [saved, ...state.savedSets], setsWonA: nextSetsWonA, setsWonB: nextSetsWonB, setNumber: state.setNumber + 1, ...after as any, toast: makeToast(`Set finished.`, "info") };
           }
-
           return newState;
         }),
 
+        // ✅ MANUAL DECREMENT: Removed rotation back
         decrementScore: (teamId) => set((state) => {
             const nextScore = teamId === "A" ? Math.max(0, state.scoreA - 1) : Math.max(0, state.scoreB - 1);
-            if (state.servingTeam === teamId) {
-                const prevServing = opponentOf(teamId);
-                const isLeft = state.leftTeam === teamId;
-                const rotated = isLeft ? rotateCourtBackward(teamId === "A" ? state.courtA : state.courtB) : rotateCourtForward(teamId === "A" ? state.courtA : state.courtB);
-                const applied = applyLiberoAutomation({ teamId, court: rotated, players: state.players, config: teamId === "A" ? state.liberoConfigA : state.liberoConfigB, swap: getSwap(state, teamId), rotationMapping: isLeft ? "BACKWARD" : "FORWARD", servingTeam: prevServing });
-                return { scoreA: teamId === "A" ? nextScore : state.scoreA, scoreB: teamId === "B" ? nextScore : state.scoreB, servingTeam: prevServing, courtA: teamId === "A" ? applied.court : state.courtA, courtB: teamId === "B" ? applied.court : state.courtB, liberoSwapA: teamId === "A" ? applied.swap : state.liberoSwapA, liberoSwapB: teamId === "B" ? applied.swap : state.liberoSwapB };
+            if (state.servingTeam === teamId && (teamId === "A" ? state.scoreA : state.scoreB) > 0) {
+                // If team losing point was serving, we just swap serve back without rotating players
+                return { 
+                  scoreA: teamId === "A" ? nextScore : state.scoreA, 
+                  scoreB: teamId === "B" ? nextScore : state.scoreB, 
+                  servingTeam: opponentOf(teamId) 
+                };
             }
-            return { scoreA: teamId === "A" ? nextScore : state.scoreA, scoreB: teamId === "B" ? nextScore : state.scoreB };
+            return { 
+              scoreA: teamId === "A" ? nextScore : state.scoreA, 
+              scoreB: teamId === "B" ? nextScore : state.scoreB 
+            };
         }),
       };
     },
     {
       name: "vb-match-store",
-      version: 26, // Version Bump
-      migrate: (persisted: any) => ({
-        ...persisted,
-        trackerMode: persisted?.trackerMode || "FULL",
-      }),
-      partialize: (state) => ({
-        players: state.players, courtA: state.courtA, courtB: state.courtB, scoreA: state.scoreA, scoreB: state.scoreB, servingTeam: state.servingTeam, events: state.events, leftTeam: state.leftTeam, liberoConfigA: state.liberoConfigA, liberoConfigB: state.liberoConfigB, rallyCount: state.rallyCount, rallyInProgress: state.rallyInProgress, serviceRunTeam: state.serviceRunTeam, serviceRunCount: state.serviceRunCount, liberoSwapA: state.liberoSwapA, liberoSwapB: state.liberoSwapB, setRules: state.setRules, setNumber: state.setNumber, setsWonA: state.setsWonA, setsWonB: state.setsWonB, savedSets: state.savedSets, subsUsedA: state.subsUsedA, subsUsedB: state.subsUsedB, activeSubsA: state.activeSubsA, activeSubsB: state.activeSubsB, trackerMode: state.trackerMode
-      }),
+      version: 30,
+      migrate: (persisted: any) => ({ ...persisted, trackerMode: persisted?.trackerMode || "FULL" }),
+      partialize: (state) => ({ players: state.players, courtA: state.courtA, courtB: state.courtB, scoreA: state.scoreA, scoreB: state.scoreB, servingTeam: state.servingTeam, events: state.events, leftTeam: state.leftTeam, liberoConfigA: state.liberoConfigA, liberoConfigB: state.liberoConfigB, rallyCount: state.rallyCount, rallyInProgress: state.rallyInProgress, serviceRunTeam: state.serviceRunTeam, serviceRunCount: state.serviceRunCount, liberoSwapA: state.liberoSwapA, liberoSwapB: state.liberoSwapB, setRules: state.setRules, setNumber: state.setNumber, setsWonA: state.setsWonA, setsWonB: state.setsWonB, savedSets: state.savedSets, subsUsedA: state.subsUsedA, subsUsedB: state.subsUsedB, activeSubsA: state.activeSubsA, activeSubsB: state.activeSubsB, trackerMode: state.trackerMode }),
     }
   )
 );

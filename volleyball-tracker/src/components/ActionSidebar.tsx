@@ -106,7 +106,7 @@ export default function ActionSidebar() {
   const closeScoresheet = useMatchStore((s) => s.closeScoresheet);
   const selectSlot = useMatchStore((s) => s.selectSlot);
   const logEvent = useMatchStore((s) => s.logEvent);
-  const trackerMode = useMatchStore((s) => s.trackerMode); // ✅ New selector
+  const trackerMode = useMatchStore((s) => s.trackerMode);
   
   const players = useMatchStore((s) => s.players);
   const courtA = useMatchStore((s) => s.courtA);
@@ -114,7 +114,6 @@ export default function ActionSidebar() {
   const events = useMatchStore((s) => s.events);
   
   const servingTeam = useMatchStore((s) => s.servingTeam);
-  const leftTeam = useMatchStore((s) => s.leftTeam);
   
   const currentScoreA = useMatchStore((s) => s.scoreA);
   const currentScoreB = useMatchStore((s) => s.scoreB);
@@ -131,7 +130,10 @@ export default function ActionSidebar() {
     const libero = isLiberoPosition(player.position);
     const isSetter = isSetterPosition(player.position);
     const isServingTeam = (teamId === servingTeam);
-    const servingSlot = teamId === leftTeam ? 1 : 5;
+
+    // ✅ FIX: Serving rotation slot is ALWAYS 1 internally for both teams.
+    // Visual mirroring is handled by the Court component.
+    const servingSlot = 1; 
     const isServingPlayer = isServingTeam && slot === servingSlot;
 
     const btns = buttonsForContext(player.position, { 
@@ -159,7 +161,6 @@ export default function ActionSidebar() {
 
     const visibleGroups = ORDER
         .filter(key => {
-            // ✅ SPLIT MODE FILTERING LOGIC
             if (trackerMode === "SCORING") {
                 return ["SERVE", "ATTACK", "BLOCK"].includes(key) && groups[key].length > 0;
             }
@@ -174,7 +175,7 @@ export default function ActionSidebar() {
         }));
 
     return { teamId, slot, player, visibleGroups, frontRow };
-  }, [active, players, courtA, courtB, servingTeam, leftTeam, trackerMode]); // ✅ Added trackerMode to dependencies
+  }, [active, players, courtA, courtB, servingTeam, trackerMode]);
 
   const historyGroups = useMemo(() => {
     const groups: { scoreLabel: string; isCurrent: boolean; events: typeof events }[] = [];
@@ -291,32 +292,32 @@ export default function ActionSidebar() {
                 </div>
                 <div className="p-1.5 space-y-1.5">
                    {group.events.map((e) => {
-                      const theme = getOutcomeTheme(e.outcome);
-                      const p = players.find((x) => x.id === e.playerId);
-                      const jersey = p ? p.jerseyNumber : "?";
+                     const theme = getOutcomeTheme(e.outcome);
+                     const p = players.find((x) => x.id === e.playerId);
+                     const jersey = p ? p.jerseyNumber : "?";
 
-                      if (e.skillKey === "SUBSTITUTION") {
-                          return (
-                            <div key={e.id} className="flex items-center justify-between text-xs bg-gray-50 p-1.5 rounded border border-gray-200 shadow-sm">
-                               <span className="text-[10px] font-bold text-gray-500 uppercase tracking-tight">Substitution</span>
-                               <span className="font-mono text-gray-400 text-[9px]">UNDOABLE</span>
-                            </div>
-                          );
-                      }
+                     if (e.skillKey === "SUBSTITUTION") {
+                         return (
+                           <div key={e.id} className="flex items-center justify-between text-xs bg-gray-50 p-1.5 rounded border border-gray-200 shadow-sm">
+                              <span className="text-[10px] font-bold text-gray-500 uppercase tracking-tight">Substitution</span>
+                              <span className="font-mono text-gray-400 text-[9px]">UNDOABLE</span>
+                           </div>
+                         );
+                     }
 
-                      return (
-                        <div key={e.id} className="flex items-center justify-between text-sm bg-white p-2 rounded border border-gray-200 shadow-sm">
-                           <div className="flex items-center gap-3">
-                              <span className="font-black text-gray-500 text-xs w-6 text-center bg-gray-100 rounded py-0.5">#{jersey}</span>
-                              <div className="font-extrabold text-gray-800 uppercase tracking-tight">
-                                  {e.skill.replace("SPIKE", "ATK").substring(0, 3)}
-                              </div>
-                           </div>
-                           <div className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wide border ${theme.badge}`}>
-                              {e.outcome.replace("POINT", "KILL").replace("SUCCESS", "GOOD").replace("PERFECT", "EXC")}
-                           </div>
-                        </div>
-                      );
+                     return (
+                       <div key={e.id} className="flex items-center justify-between text-sm bg-white p-2 rounded border border-gray-200 shadow-sm">
+                          <div className="flex items-center gap-3">
+                             <span className="font-black text-gray-500 text-xs w-6 text-center bg-gray-100 rounded py-0.5">#{jersey}</span>
+                             <div className="font-extrabold text-gray-800 uppercase tracking-tight">
+                                 {e.skill.replace("SPIKE", "ATK").substring(0, 3)}
+                             </div>
+                          </div>
+                          <div className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wide border ${theme.badge}`}>
+                            {e.outcome.replace("POINT", "KILL").replace("SUCCESS", "GOOD").replace("PERFECT", "EXC")}
+                          </div>
+                       </div>
+                     );
                    })}
                 </div>
               </div>

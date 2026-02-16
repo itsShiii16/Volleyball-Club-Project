@@ -43,19 +43,21 @@ function TeamHalf({ side, teamId }: { side: "left" | "right"; teamId: TeamId }) 
   // Responsive Grid Gaps
   const gridClass = "grid grid-rows-3 gap-2 sm:gap-3 lg:gap-4 xl:gap-8 place-items-center h-full";
 
+  // ✅ COMPLETE OPPOSITE LOGIC (Point-Reflection):
+  // Team A (Left): Top -> Bottom is 5 (BL), 6 (BM), 1 (BR).
+  // Team B (Right): Top -> Bottom is 1 (BR), 6 (BM), 5 (BL).
+  const backSlots: RotationSlot[] = isLeft ? [5, 6, 1] : [1, 6, 5];
+  const frontSlots: RotationSlot[] = isLeft ? [4, 3, 2] : [2, 3, 4];
+
   const BackCol = (
     <div className={gridClass}>
-      <CourtSlot teamId={teamId} slot={5} />
-      <CourtSlot teamId={teamId} slot={6} />
-      <CourtSlot teamId={teamId} slot={1} />
+      {backSlots.map(s => <CourtSlot key={s} teamId={teamId} slot={s} />)}
     </div>
   );
 
   const FrontCol = (
     <div className={gridClass}>
-      <CourtSlot teamId={teamId} slot={4} />
-      <CourtSlot teamId={teamId} slot={3} />
-      <CourtSlot teamId={teamId} slot={2} />
+      {frontSlots.map(s => <CourtSlot key={s} teamId={teamId} slot={s} />)}
     </div>
   );
 
@@ -85,7 +87,6 @@ function CourtSlot({ teamId, slot }: { teamId: TeamId; slot: RotationSlot }) {
   const selectSlot = useMatchStore((s) => s.selectSlot);
   const openScoresheet = useMatchStore((s) => s.openScoresheet);
   const servingTeam = useMatchStore((s) => s.servingTeam);
-  const leftTeam = useMatchStore((s) => s.leftTeam); 
 
   const court = useMatchStore((s) => (teamId === "A" ? s.courtA : s.courtB));
   const playerId = court[slot];
@@ -93,7 +94,6 @@ function CourtSlot({ teamId, slot }: { teamId: TeamId; slot: RotationSlot }) {
 
   const liberoSwap = teamId === "A" ? useMatchStore((s) => s.liberoSwapA) : useMatchStore((s) => s.liberoSwapB);
   
-  // ✅ FIX: Updated logic to check `replacedPlayerId` instead of `replacedMbId`
   const isLiberoAutoSub = !!playerId && liberoSwap.active && liberoSwap.slot === slot && liberoSwap.liberoId === playerId;
   const replacedPlayer = isLiberoAutoSub && liberoSwap.replacedPlayerId 
     ? players.find((p) => p.id === liberoSwap.replacedPlayerId) ?? null 
@@ -106,8 +106,13 @@ function CourtSlot({ teamId, slot }: { teamId: TeamId; slot: RotationSlot }) {
   });
 
   const isSelected = selected?.teamId === teamId && selected?.slot === slot;
-  const servingSlot: RotationSlot = teamId === leftTeam ? 1 : 5;
-  const isServer = !!playerId && teamId === servingTeam && slot === servingSlot;
+  
+  // ✅ FIX: SERVING LOGIC IS NOW CONSISTENT
+  // Slot 1 is always the server.
+  // Visually: On Left side, Slot 1 is at the bottom. On Right side, Slot 1 is at the top.
+  // This matches your drawing and ensures buttons appear in the correct corner.
+  const isServer = !!playerId && teamId === servingTeam && slot === 1;
+  
   const posColors = positionColors(player?.position);
 
   function handlePrimaryClick() {
@@ -122,9 +127,7 @@ function CourtSlot({ teamId, slot }: { teamId: TeamId; slot: RotationSlot }) {
     <div
       ref={setNodeRef}
       className={[
-        // ✅ INCREASED SIZING for desktop readability
         "w-full h-full max-w-[180px] max-h-[120px] aspect-[16/10]",
-        
         "rounded-lg sm:rounded-xl xl:rounded-2xl shadow-md transition-all px-2 py-1 sm:px-3 sm:py-2 xl:px-4 xl:py-3 flex flex-col text-left relative",
         "cursor-pointer select-none border-[2px] sm:border-[3px]",
         "text-gray-900",
@@ -136,7 +139,6 @@ function CourtSlot({ teamId, slot }: { teamId: TeamId; slot: RotationSlot }) {
       ].join(" ")}
       onClick={handlePrimaryClick}
     >
-      {/* Top Row: Label & Badges */}
       <div className="flex items-center justify-between leading-none mb-auto">
         <div className="text-[9px] sm:text-[10px] xl:text-sm uppercase font-black opacity-60 tracking-wider">{slotLabel[slot]}</div>
         
@@ -146,28 +148,23 @@ function CourtSlot({ teamId, slot }: { teamId: TeamId; slot: RotationSlot }) {
         </div>
       </div>
 
-      {/* Player Info - Centered */}
       <div className="flex-1 flex flex-col justify-center min-h-0 items-center text-center">
         {player ? (
           <>
             <div className="flex flex-col items-center">
-                {/* ✅ HUGE Jersey Number */}
                 <div className="text-2xl sm:text-3xl xl:text-5xl font-black leading-none tracking-tighter text-gray-900 drop-shadow-sm">
                   {player.jerseyNumber}
                 </div>
                 
-                {/* ✅ Larger Name */}
                 <div className="text-xs sm:text-sm xl:text-lg font-bold truncate leading-tight mt-0.5 xl:mt-1 max-w-full px-1">
                   {player.name}
                 </div>
 
-                {/* Position Pill */}
                 <div className={`mt-1 hidden sm:block text-[9px] xl:text-xs font-black px-2 py-0.5 rounded-full shadow-sm border border-black/5 ${posColors.chipBg} ${posColors.chipText}`}>
                     {player.position}
                 </div>
             </div>
 
-            {/* Sub Info */}
             {isLiberoAutoSub && replacedPlayer && (
               <div className="hidden xl:block text-[10px] font-bold text-gray-500 truncate mt-1 bg-white/50 px-1.5 py-0.5 rounded">
                 Sub #{replacedPlayer.jerseyNumber}
@@ -179,11 +176,10 @@ function CourtSlot({ teamId, slot }: { teamId: TeamId; slot: RotationSlot }) {
         )}
       </div>
 
-      {/* Action Button Overlay (Hover) */}
       <div className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity bg-black/10 rounded-xl backdrop-blur-[1px]">
-         <span className="bg-white text-black font-black text-xs px-3 py-1.5 rounded-full shadow-lg uppercase tracking-wider scale-110">
+          <span className="bg-white text-black font-black text-xs px-3 py-1.5 rounded-full shadow-lg uppercase tracking-wider scale-110">
             {playerId ? "Score" : "Add"}
-         </span>
+          </span>
       </div>
     </div>
   );
