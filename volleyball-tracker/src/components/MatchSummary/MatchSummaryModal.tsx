@@ -12,7 +12,7 @@ const fmtTime = (ts: number) =>
 const normKey = (v: unknown) =>
   String(v ?? "").trim().toUpperCase().replace(/[^\w\s-]/g, "").replace(/[\s-]+/g, "_");
 
-// Name cleaner for fuzzy matching
+// Name cleaner for fuzzy matching (Matches "John Doe" with "john doe")
 const cleanName = (name: string) => name.trim().toLowerCase().replace(/\s+/g, " ");
 
 type PosBucket = "OH" | "OPP" | "S" | "L" | "MB" | "OTHER";
@@ -55,7 +55,6 @@ const calculatePlayerStats = (playerId: string, events: any[]) => {
     if (ev.playerId !== playerId) continue;
     const skill = ev.skillKey || "";
     const outcome = ev.outcomeKey || "";
-    
     if (skill.includes("SPIKE") || skill.includes("ATTACK")) {
       stats.spikes.total++;
       if (outcome.includes("KILL") || outcome.includes("WIN")) { stats.spikes.won++; stats.points++; }
@@ -111,7 +110,7 @@ export default function MatchSummaryModal() {
   const [sheetTab, setSheetTab] = useState<TeamId>("A");
   const [filterSetId, setFilterSetId] = useState<string | "ALL">("ALL");
 
-  // ✅ Export Image
+  // ✅ HANDLER: Export as Image
   const handleExportPhoto = async () => {
     if (summaryRef.current === null) return;
     try {
@@ -123,40 +122,49 @@ export default function MatchSummaryModal() {
     } catch (err) { console.error("Export failed", err); }
   };
 
-  // ✅ FIXED EXPORT: Calculates Totals instead of raw history
+  // ✅ FIXED EXPORT: Separates stats by Set Number (Prevents Double Counting)
   const handleExportForPartner = () => {
-    const historicalEvents = savedSets.flatMap(set => set.events || []);
-    const allEvents = [...historicalEvents, ...events];
+    const exportPayload: any[] = [];
 
-    if (allEvents.length === 0) {
-        alert("No data to export.");
-        return;
-    }
-
-    // 1. Calculate totals for every player
-    const playerTotals: Record<string, any> = {};
-    players.forEach(p => {
-        const stats = calculatePlayerStats(p.id, allEvents);
-        // Only include if they have at least one stat
-        const hasStats = Object.values(stats).some(val => 
-            typeof val === 'number' ? val > 0 : Object.values(val).some(v => v > 0)
-        );
-        if (hasStats) {
-            playerTotals[p.id] = stats;
-        }
+    // 1. Process Saved Sets (History)
+    savedSets.forEach(set => {
+        const setTotals: Record<string, any> = {};
+        players.forEach(p => {
+            const stats = calculatePlayerStats(p.id, set.events || []);
+            // Only export players with actual stats
+            const hasStats = Object.values(stats).some((v: any) => typeof v === 'number' ? v > 0 : Object.values(v).some(x => Number(x) > 0));
+            if (hasStats) {
+                setTotals[p.id] = stats;
+            }
+        });
+        exportPayload.push({ setNumber: set.setNumber, totals: setTotals });
     });
 
-    const payload = {
-        type: "TALLIED_STATS_V1",
+    // 2. Process Current Set (Active)
+    const currentTotals: Record<string, any> = {};
+    players.forEach(p => {
+        const stats = calculatePlayerStats(p.id, events);
+        const hasStats = Object.values(stats).some((v: any) => typeof v === 'number' ? v > 0 : Object.values(v).some(x => Number(x) > 0));
+        if (hasStats) {
+            currentTotals[p.id] = stats;
+        }
+    });
+    
+    // Determine current set number (History length + 1)
+    const currentSetNum = savedSets.length + 1; 
+    exportPayload.push({ setNumber: currentSetNum, totals: currentTotals });
+
+    const finalJson = {
+        type: "TALLIED_BY_SET_V1",
         roster: players,
-        totals: playerTotals
+        sets: exportPayload
     };
 
-    const dataStr = JSON.stringify(payload, null, 2);
-    downloadFile(dataStr, `tallied_stats_${Date.now()}.json`, "application/json");
+    const dataStr = JSON.stringify(finalJson, null, 2);
+    downloadFile(dataStr, `stats_share_${Date.now()}.json`, "application/json");
   };
 
-  // ✅ FIXED IMPORT: Converts Totals back to Synthetic Events
+  // ✅ FIXED IMPORT: Reads Per-Set Totals & Maps to Correct Set
   const handleImportFromPartner = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -166,17 +174,17 @@ export default function MatchSummaryModal() {
       try {
         const json = JSON.parse(event.target?.result as string);
         
-        if (json.type !== "TALLIED_STATS_V1") {
-            alert("Please use the new 'Export to Partner' format.");
+        if (json.type !== "TALLIED_BY_SET_V1" || !Array.isArray(json.sets)) {
+            alert("Format mismatch. Please ask partner to re-export using the latest version.");
             return;
         }
 
         const partnerRoster = json.roster || [];
-        const totals = json.totals || {};
+        const setsData = json.sets;
         const syntheticEvents: any[] = [];
-        const ts = Date.now(); // Timestamp for synthetic events
+        const ts = Date.now(); 
 
-        // 1. Map IDs
+        // 1. Fuzzy Match Players (Name + Jersey)
         const idMap = new Map<string, string>();
         if (partnerRoster.length > 0) {
             partnerRoster.forEach((pPartner: any) => {
@@ -189,76 +197,79 @@ export default function MatchSummaryModal() {
             });
         }
 
-        // 2. Generate Synthetic Events from Tallies
-        Object.entries(totals).forEach(([partnerId, stats]: [string, any]) => {
-            const localId = idMap.get(partnerId);
-            if (!localId) return; // Skip if player not found locally
+        // 2. Loop through EACH set in the file
+        setsData.forEach((setData: any) => {
+            const setNum = setData.setNumber;
+            const totals = setData.totals;
 
-            const createEvents = (count: number, skill: string, outcome: string) => {
-                for (let i = 0; i < count; i++) {
-                    syntheticEvents.push({
-                        id: crypto.randomUUID(),
-                        ts, // Same timestamp for all, doesn't matter for totals
-                        playerId: localId,
-                        skillKey: skill,
-                        outcomeKey: outcome,
-                        teamId: players.find(p => p.id === localId)?.teamId,
-                        // Dummy data for required fields
-                        skill: skill, outcome: outcome, 
-                        prevScoreA: 0, prevScoreB: 0, prevServingTeam: "A",
-                        prevCourtA: {}, prevCourtB: {},
-                    });
-                }
-            };
+            Object.entries(totals).forEach(([partnerId, stats]: [string, any]) => {
+                const localId = idMap.get(partnerId);
+                if (!localId) return; 
 
-            // Reconstruct Spikes
-            createEvents(stats.spikes.won, "SPIKE", "KILL");
-            createEvents(stats.spikes.error, "SPIKE", "ERROR");
-            createEvents(Math.max(0, stats.spikes.total - stats.spikes.won - stats.spikes.error), "SPIKE", "ATTEMPT");
+                // Helper to create exact number of events
+                const createEvents = (count: number, skill: string, outcome: string) => {
+                    for (let i = 0; i < count; i++) {
+                        syntheticEvents.push({
+                            id: crypto.randomUUID(),
+                            ts: ts + i, 
+                            playerId: localId,
+                            skillKey: skill,
+                            outcomeKey: outcome,
+                            teamId: players.find(p => p.id === localId)?.teamId,
+                            skill: skill, outcome: outcome, 
+                            prevScoreA: 0, prevScoreB: 0, prevServingTeam: "A",
+                            prevCourtA: {}, prevCourtB: {},
+                            // 🚀 CRITICAL: This allows the store to put stats in history vs current
+                            prevSetNumber: setNum 
+                        });
+                    }
+                };
 
-            // Reconstruct Blocks
-            createEvents(stats.blocks.won, "BLOCK", "KILL");
-            createEvents(stats.blocks.error, "BLOCK", "ERROR");
-
-            // Reconstruct Serves
-            createEvents(stats.serves.ace, "SERVE", "ACE");
-            createEvents(stats.serves.error, "SERVE", "ERROR");
-            createEvents(Math.max(0, stats.serves.total - stats.serves.ace - stats.serves.error), "SERVE", "SUCCESS");
-
-            // Reconstruct Digs
-            createEvents(stats.dig.exc, "DIG", "PERFECT");
-            createEvents(stats.dig.error, "DIG", "ERROR");
-            createEvents(Math.max(0, stats.dig.total - stats.dig.exc - stats.dig.error), "DIG", "ATTEMPT");
-
-            // Reconstruct Sets
-            createEvents(stats.set.exc, "SET", "PERFECT");
-            createEvents(stats.set.running, "SET", "SUCCESS"); // Running sets
-            createEvents(stats.set.error, "SET", "ERROR");
-            createEvents(Math.max(0, stats.set.total - stats.set.exc - stats.set.running - stats.set.error), "SET", "ATTEMPT");
-
-            // Reconstruct Receives
-            createEvents(stats.receive.exc, "RECEPTION", "PERFECT");
-            createEvents(stats.receive.error, "RECEPTION", "ERROR");
-            createEvents(Math.max(0, stats.receive.total - stats.receive.exc - stats.receive.error), "RECEPTION", "ATTEMPT");
+                // Reconstruct ALL Stats based on the totals provided
+                createEvents(stats.spikes.won, "SPIKE", "KILL");
+                createEvents(stats.spikes.error, "SPIKE", "ERROR");
+                createEvents(Math.max(0, stats.spikes.total - stats.spikes.won - stats.spikes.error), "SPIKE", "ATTEMPT");
+                
+                createEvents(stats.blocks.won, "BLOCK", "KILL");
+                createEvents(stats.blocks.error, "BLOCK", "ERROR");
+                
+                createEvents(stats.serves.ace, "SERVE", "ACE");
+                createEvents(stats.serves.error, "SERVE", "ERROR");
+                createEvents(Math.max(0, stats.serves.total - stats.serves.ace - stats.serves.error), "SERVE", "SUCCESS");
+                
+                createEvents(stats.dig.exc, "DIG", "PERFECT");
+                createEvents(stats.dig.error, "DIG", "ERROR");
+                createEvents(Math.max(0, stats.dig.total - stats.dig.exc - stats.dig.error), "DIG", "ATTEMPT");
+                
+                createEvents(stats.set.exc, "SET", "PERFECT");
+                createEvents(stats.set.running, "SET", "SUCCESS");
+                createEvents(stats.set.error, "SET", "ERROR");
+                createEvents(Math.max(0, stats.set.total - stats.set.exc - stats.set.running - stats.set.error), "SET", "ATTEMPT");
+                
+                createEvents(stats.receive.exc, "RECEPTION", "PERFECT");
+                createEvents(stats.receive.error, "RECEPTION", "ERROR");
+                createEvents(Math.max(0, stats.receive.total - stats.receive.exc - stats.receive.error), "RECEPTION", "ATTEMPT");
+            });
         });
 
         if (syntheticEvents.length > 0) {
             importEvents(syntheticEvents);
-            alert(`Merged ${syntheticEvents.length} data points from partner. Full Match table updated.`);
+            alert(`Merged ${syntheticEvents.length} stats successfully!`);
         } else {
-            alert("No matching players found or no stats to import.");
+            alert("No matching players found. Check roster names.");
         }
 
       } catch (err) { 
         console.error(err);
-        alert("Import failed. File might be corrupted."); 
+        alert("Import failed. File corrupted."); 
       }
     };
     reader.readAsText(file);
     e.target.value = "";
   };
 
-  const handleExportCSV = () => { /* ... existing CSV logic ... */ 
+  // ✅ CSV EXPORT
+  const handleExportCSV = () => {
     let csv = "Team,Jersey,Name,Sets,Points,Spike Won,Spike Err,Spike Tot,Block Kill,Block Err,Serve Ace,Serve Err,Serve Tot,Dig Exc,Dig Err,Dig Tot,Set Exc,Set Run,Set Err,Set Tot,Rec Exc,Rec Err,Rec Tot\n";
     const processRow = (r: any, team: string) => {
         csv += `${team},${r.player.jerseyNumber || ""},${r.player.name},${r.setsPlayed},${r.stats.points},` +
@@ -293,7 +304,6 @@ export default function MatchSummaryModal() {
 
   const activeEvents = useMemo(() => {
     const saved = filteredSets.flatMap((s) => s.events || []);
-    // In 'ALL', merge saved history + current active events (including imported ones)
     return filterSetId === "ALL" ? [...saved, ...events] : saved;
   }, [filteredSets, events, filterSetId]);
 
@@ -477,7 +487,7 @@ export default function MatchSummaryModal() {
             </div>
           )}
 
-          {/* 2. RANKINGS (With POG Details) */}
+          {/* 2. RANKINGS */}
           {viewMode === "rankings" && (
             <div className="flex-1 overflow-auto p-4 lg:p-8 bg-gray-50 space-y-8 text-gray-900">
               <div className="rounded-xl bg-white border border-gray-200 p-6 shadow-sm">
@@ -582,7 +592,7 @@ export default function MatchSummaryModal() {
             </div>
           )}
 
-          {/* 3. ROLE STATS (Fixed Overflow) */}
+          {/* 3. ROLE STATS */}
           {viewMode === "roles" && (
             <div className="flex-1 overflow-auto p-4 lg:p-8 bg-gray-50 space-y-8 text-gray-900">
                <div>

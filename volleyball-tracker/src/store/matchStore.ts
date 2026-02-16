@@ -362,12 +362,54 @@ export const useMatchStore = create<MatchStore>()(
         setTrackerMode: (mode) => set({ trackerMode: mode }),
         
         importEvents: (externalEvents) => set((state) => {
-            const existingIds = new Set(state.events.map(e => e.id));
-            const savedEvents = state.savedSets.flatMap(s => s.events);
-            savedEvents.forEach(e => existingIds.add(e.id));
-            const freshEvents = externalEvents.filter(e => !existingIds.has(e.id));
-            const merged = [...state.events, ...freshEvents].sort((a, b) => b.ts - a.ts);
-            return { events: merged, toast: makeToast(`Imported ${freshEvents.length} events.`, "info") };
+            // Create mutable copies
+            const nextSavedSets = state.savedSets.map(s => ({...s, events: [...s.events], perPlayer: {...s.perPlayer} }));
+            const nextCurrentEvents = [...state.events];
+            let importedCount = 0;
+
+            externalEvents.forEach(ev => {
+                // CASE A: Event belongs to a FINISHED set (e.g. Set 1)
+                if (ev.prevSetNumber && ev.prevSetNumber < state.setNumber) {
+                    const targetSet = nextSavedSets.find(s => s.setNumber === ev.prevSetNumber);
+                    if (targetSet) {
+                        // Prevent duplicates by ID
+                        if (!targetSet.events.some(e => e.id === ev.id)) {
+                            targetSet.events.push(ev);
+                            
+                            // Update the POG Stats Cache for that historical set
+                            const pid = ev.playerId;
+                            // Ensure player entry exists
+                            if (!targetSet.perPlayer[pid]) targetSet.perPlayer[pid] = { counts: emptyCounts(), pogPoints: 0 };
+                            
+                            const stats = targetSet.perPlayer[pid];
+                            const k = classifyForPog(ev.skillKey, ev.outcomeKey);
+                            if (k) stats.counts[k] = (stats.counts[k] || 0) + 1;
+                            
+                            // Re-calculate POG points
+                            const playerDef = state.players.find(p => p.id === pid);
+                            if (playerDef) stats.pogPoints = calcPlayerPogPoints(playerDef, stats.counts);
+                            
+                            importedCount++;
+                        }
+                    }
+                } 
+                // CASE B: Event belongs to the CURRENT set
+                else {
+                    if (!nextCurrentEvents.some(e => e.id === ev.id)) {
+                        nextCurrentEvents.push(ev);
+                        importedCount++;
+                    }
+                }
+            });
+            
+            // Re-sort current events chronologically
+            nextCurrentEvents.sort((a, b) => b.ts - a.ts);
+
+            return { 
+                savedSets: nextSavedSets, 
+                events: nextCurrentEvents, 
+                toast: makeToast(`Synced ${importedCount} stats successfully.`, "info") 
+            };
         }),
 
         players: [], courtA: emptyCourt(), courtB: emptyCourt(), leftTeam: "A", setLeftTeam: (teamId) => set({ leftTeam: teamId }), swapSides: () => set((state) => ({ leftTeam: state.leftTeam === "A" ? "B" : "A" })),
