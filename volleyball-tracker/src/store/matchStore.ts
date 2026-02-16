@@ -181,10 +181,11 @@ function applyLiberoAutomation(params: { teamId: TeamId; court: CourtState; play
 type RoleKey = "WINGERS" | "MIDDLE_BLOCKER" | "LIBERO" | "SETTER";
 type StatKey = "SERVE_ACE" | "SERVE_SUCCESS" | "SERVE_ERROR" | "RECEPTION_EXC" | "RECEPTION_ATT" | "RECEPTION_ERR" | "DIG_EXC" | "DIG_ATT" | "DIG_ERR" | "ATTACK_KILL" | "ATTACK_ATT" | "ATTACK_ERR" | "BLOCK_KILL" | "BLOCK_ERR" | "SET_EXC" | "SET_RUN" | "SET_ERR";
 
+// ✅ UPDATED: DIG_ERR is -2 ONLY for Libero role.
 const POG_MULTIPLIERS: Record<RoleKey, Record<StatKey, number>> = {
   WINGERS: { SERVE_ACE: 2, SERVE_SUCCESS: 1, SERVE_ERROR: -2, RECEPTION_EXC: 2, RECEPTION_ATT: 1, RECEPTION_ERR: -2, DIG_EXC: 2, DIG_ATT: 1, DIG_ERR: 0, ATTACK_KILL: 2, ATTACK_ATT: 0, ATTACK_ERR: -2, BLOCK_KILL: 2, BLOCK_ERR: -2, SET_EXC: 0, SET_RUN: 0, SET_ERR: 0 },
   MIDDLE_BLOCKER: { SERVE_ACE: 2, SERVE_SUCCESS: 1, SERVE_ERROR: -2, RECEPTION_EXC: 0, RECEPTION_ATT: 0, RECEPTION_ERR: 0, DIG_EXC: 2, DIG_ATT: 1, DIG_ERR: 0, ATTACK_KILL: 4, ATTACK_ATT: 0, ATTACK_ERR: -4, BLOCK_KILL: 4, BLOCK_ERR: -4, SET_EXC: 0, SET_RUN: 0, SET_ERR: 0 },
-  LIBERO: { SERVE_ACE: 0, SERVE_SUCCESS: 0, SERVE_ERROR: 0, RECEPTION_EXC: 3, RECEPTION_ATT: 1, RECEPTION_ERR: -2, DIG_EXC: 2, DIG_ATT: 1, DIG_ERR: 0, ATTACK_KILL: 0, ATTACK_ATT: 0, ATTACK_ERR: 0, BLOCK_KILL: 0, BLOCK_ERR: 0, SET_EXC: 0, SET_RUN: 2, SET_ERR: -2 },
+  LIBERO: { SERVE_ACE: 0, SERVE_SUCCESS: 0, SERVE_ERROR: 0, RECEPTION_EXC: 3, RECEPTION_ATT: 1, RECEPTION_ERR: -2, DIG_EXC: 2, DIG_ATT: 1, DIG_ERR: -2, ATTACK_KILL: 0, ATTACK_ATT: 0, ATTACK_ERR: 0, BLOCK_KILL: 0, BLOCK_ERR: 0, SET_EXC: 0, SET_RUN: 2, SET_ERR: -2 },
   SETTER: { SERVE_ACE: 2, SERVE_SUCCESS: 1, SERVE_ERROR: -2, RECEPTION_EXC: 0, RECEPTION_ATT: 0, RECEPTION_ERR: 0, DIG_EXC: 2, DIG_ATT: 1, DIG_ERR: 0, ATTACK_KILL: 1, ATTACK_ATT: 0, ATTACK_ERR: -2, BLOCK_KILL: 2, BLOCK_ERR: -2, SET_EXC: 2, SET_RUN: 0.5, SET_ERR: -2 },
 };
 
@@ -538,7 +539,6 @@ export const useMatchStore = create<MatchStore>()(
           }
           if (state.events.length > 0) {
             const last = state.events[0];
-            // ✅ UNDO RESTORES ROTATION
             return { ...state, scoreA: last.prevScoreA, scoreB: last.prevScoreB, servingTeam: last.prevServingTeam, courtA: last.prevCourtA, courtB: last.prevCourtB, liberoSwapA: last.prevLiberoSwapA, liberoSwapB: last.prevLiberoSwapB, rallyCount: last.prevRallyCount, rallyInProgress: last.prevRallyInProgress, serviceRunTeam: last.prevServiceRunTeam, serviceRunCount: last.prevServiceRunCount, events: state.events.slice(1), subsUsedA: last.prevSubsUsedA, subsUsedB: last.prevSubsUsedB, activeSubsA: last.prevActiveSubsA, activeSubsB: last.prevActiveSubsB };
           }
           return state;
@@ -548,7 +548,6 @@ export const useMatchStore = create<MatchStore>()(
             const index = state.events.findIndex(e => e.id === eventId);
             if (index === -1) return state;
             const targetEvent = state.events[index];
-            // ✅ UNDO RESTORES ROTATION
             return { ...state, scoreA: targetEvent.prevScoreA, scoreB: targetEvent.prevScoreB, servingTeam: targetEvent.prevServingTeam, courtA: targetEvent.prevCourtA, courtB: targetEvent.prevCourtB, liberoSwapA: targetEvent.prevLiberoSwapA, liberoSwapB: targetEvent.prevLiberoSwapB, rallyCount: targetEvent.prevRallyCount, rallyInProgress: targetEvent.prevRallyInProgress, serviceRunTeam: targetEvent.prevServiceRunTeam, serviceRunCount: targetEvent.prevServiceRunCount, subsUsedA: targetEvent.prevSubsUsedA, subsUsedB: targetEvent.prevSubsUsedB, activeSubsA: targetEvent.prevActiveSubsA, activeSubsB: targetEvent.prevActiveSubsB, events: state.events.slice(index + 1), toast: makeToast("State restored.", "info") };
         }),
 
@@ -598,21 +597,12 @@ export const useMatchStore = create<MatchStore>()(
           return newState;
         }),
 
-        // ✅ MANUAL DECREMENT: Removed rotation back
         decrementScore: (teamId) => set((state) => {
             const nextScore = teamId === "A" ? Math.max(0, state.scoreA - 1) : Math.max(0, state.scoreB - 1);
             if (state.servingTeam === teamId && (teamId === "A" ? state.scoreA : state.scoreB) > 0) {
-                // If team losing point was serving, we just swap serve back without rotating players
-                return { 
-                  scoreA: teamId === "A" ? nextScore : state.scoreA, 
-                  scoreB: teamId === "B" ? nextScore : state.scoreB, 
-                  servingTeam: opponentOf(teamId) 
-                };
+                return { scoreA: teamId === "A" ? nextScore : state.scoreA, scoreB: teamId === "B" ? nextScore : state.scoreB, servingTeam: opponentOf(teamId) };
             }
-            return { 
-              scoreA: teamId === "A" ? nextScore : state.scoreA, 
-              scoreB: teamId === "B" ? nextScore : state.scoreB 
-            };
+            return { scoreA: teamId === "A" ? nextScore : state.scoreA, scoreB: teamId === "B" ? nextScore : state.scoreB };
         }),
       };
     },
