@@ -215,7 +215,7 @@ const positionGroupFromPlayer = (p: Player | null | undefined): PositionGroup =>
   const pos = normKey(p?.position ?? "");
   if (pos === "OH" || pos.includes("OUTSIDE")) return "OH";
   if (pos === "OPP" || pos.includes("OPPOSITE") || pos.includes("RIGHT")) return "OPP";
-  if (pos === "S" || pos.includes("SETTER")) return "S";
+  if (pos === "S" || pos === "SETTER") return "S";
   if (pos === "L" || pos === "LIBERO") return "L";
   if (p?.position === "MB" || pos.includes("MIDDLE")) return "MB";
   return "OTHER";
@@ -313,35 +313,6 @@ export const useMatchStore = create<MatchStore>()(
       const setSwapPatch = (teamId: TeamId, swap: LiberoSwap) => teamId === "A" ? { liberoSwapA: swap } : { liberoSwapB: swap };
 
       const buildSavedSet = (params: any): SavedSet => {
-        // ✅ 1. Start by gathering ALL players who participated, even without stats
-        const participatedPlayerIds = new Set<string>();
-
-        // From Events (anyone who did something or subbed in)
-        for (const ev of params.events) {
-            if (ev.playerId) participatedPlayerIds.add(ev.playerId);
-        }
-
-        // From Final Court State (starters/finishers who didn't touch ball)
-        const addFromCourt = (court: CourtState) => Object.values(court).forEach(pid => pid && participatedPlayerIds.add(pid));
-        addFromCourt(params.courtA);
-        addFromCourt(params.courtB);
-
-        // From Active Subs (starters who were subbed out)
-        const addFromSubs = (subs: Record<string, string>) => Object.values(subs).forEach(pid => pid && participatedPlayerIds.add(pid));
-        addFromSubs(params.activeSubsA);
-        addFromSubs(params.activeSubsB);
-
-        // From Liberos (if enabled)
-        if (params.liberoConfigA.enabled) {
-            if (params.liberoConfigA.liberoId) participatedPlayerIds.add(params.liberoConfigA.liberoId);
-            if (params.liberoConfigA.secondLiberoId) participatedPlayerIds.add(params.liberoConfigA.secondLiberoId);
-        }
-        if (params.liberoConfigB.enabled) {
-            if (params.liberoConfigB.liberoId) participatedPlayerIds.add(params.liberoConfigB.liberoId);
-            if (params.liberoConfigB.secondLiberoId) participatedPlayerIds.add(params.liberoConfigB.secondLiberoId);
-        }
-
-        // ✅ 2. Calculate Stats
         const perPlayerCounts: Record<string, Record<StatKey, number>> = {};
         for (const ev of params.events) {
           const k = classifyForPog(ev.skillKey, ev.outcomeKey);
@@ -350,15 +321,11 @@ export const useMatchStore = create<MatchStore>()(
             perPlayerCounts[ev.playerId][k] += 1;
           }
         }
-
-        // ✅ 3. Build Final Record (Includes 0-stat players)
         const perPlayer: Record<string, PlayerSetStats> = {};
-        participatedPlayerIds.forEach(pid => {
-             const p = params.players.find((x: any) => x.id === pid);
-             const counts = perPlayerCounts[pid] || emptyCounts();
-             if (p) perPlayer[pid] = { counts, pogPoints: calcPlayerPogPoints(p, counts) };
-        });
-
+        for (const [pid, counts] of Object.entries(perPlayerCounts)) {
+          const p = params.players.find((x: any) => x.id === pid);
+          if (p) perPlayer[pid] = { counts, pogPoints: calcPlayerPogPoints(p, counts) };
+        }
         return { id: crypto.randomUUID(), ts: Date.now(), ...params, perPlayer };
       };
 
@@ -441,6 +408,8 @@ export const useMatchStore = create<MatchStore>()(
         setPlayers: (players) => set({ players }), addPlayer: (player) => set((state) => ({ players: [...state.players, player] })), updatePlayer: (id, patch) => set((state) => ({ players: state.players.map((p) => p.id === id ? { ...p, ...patch } : p) })),
         removePlayer: (id) => set((state) => ({ players: state.players.filter((p) => p.id !== id) })),
         subsUsedA: 0, subsUsedB: 0, activeSubsA: {}, activeSubsB: {},
+        
+        // ✅ UPDATED ASSIGNMENT: AUTO-ADDS MIDDLE BLOCKERS TO REPLACEMENT LIST
         assignPlayerToSlot: (teamId, slot, playerId) => set((state) => {
           const isMidGame = state.events.length > 0 || state.scoreA > 0 || state.scoreB > 0;
           const key = teamId === "A" ? "courtA" : "courtB"; 
@@ -449,13 +418,16 @@ export const useMatchStore = create<MatchStore>()(
           let court = { ...state[key] };
           let activeSubs = { ...state[subKey] };
           let subsUsed = state[countKey];
+          
           const currentPlayerId = court[slot];
           const pIn = state.players.find(p => p.id === playerId);
           const pOut = state.players.find(p => p.id === currentPlayerId);
           const inIsLibero = isLiberoPlayer(pIn);
           const outIsLibero = isLiberoPlayer(pOut);
+          
           const isLiberoRegularSwap = (inIsLibero && !outIsLibero) || (!inIsLibero && outIsLibero);
           const isSubstitution = isMidGame && !inIsLibero && !outIsLibero;
+
           if (isSubstitution) {
               if (subsUsed >= 6) return { ...state, toast: makeToast("Sub limit reached.", "error") };
               if (currentPlayerId) {
@@ -469,13 +441,32 @@ export const useMatchStore = create<MatchStore>()(
               }
               subsUsed++;
           }
+
           court[slot] = playerId;
+          
           const currentConfig = teamId === "A" ? state.liberoConfigA : state.liberoConfigB;
           let newConfig = { ...currentConfig };
-          if (inIsLibero) newConfig.liberoId = playerId;
+          
+          // ✅ AUTO-CONFIGURATION LOGIC
+          if (inIsLibero) {
+              newConfig.liberoId = playerId;
+              newConfig.enabled = true;
+          } else {
+              // If dragging a Middle Blocker (or relevant role), auto-add to replacement list
+              const role = positionGroupFromPlayer(pIn);
+              if (role === "MB" || role === "OTHER") {
+                  const currentReps = newConfig.replacementIds || [];
+                  if (!currentReps.includes(playerId) && currentReps.length < 2) {
+                      newConfig.replacementIds = [...currentReps, playerId];
+                      newConfig.enabled = true;
+                  }
+              }
+          }
+
           const applied = applyLiberoAutomation({ teamId, court, players: state.players, config: newConfig, swap: getSwap(state, teamId), servingTeam: state.servingTeam });
           const nextState: any = { ...state, [key]: applied.court, ...setSwapPatch(teamId, applied.swap), [subKey]: activeSubs, [countKey]: subsUsed };
           if (teamId === "A") nextState.liberoConfigA = newConfig; else nextState.liberoConfigB = newConfig;
+          
           if (isSubstitution) {
               const subEvent: InternalEvent = {
                 id: crypto.randomUUID(), ts: Date.now(), teamId, playerId, slot, skill: "SUBSTITUTION" as any, outcome: "None" as any, trackerMode: state.trackerMode,
@@ -490,6 +481,7 @@ export const useMatchStore = create<MatchStore>()(
           if (applied.toast) nextState.toast = applied.toast;
           return nextState;
         }),
+        
         substituteInSlot: (teamId, slot, newPlayerId) => get().assignPlayerToSlot(teamId, slot, newPlayerId),
         clearSlot: (teamId, slot) => set((state) => { const key = teamId === "A" ? "courtA" : "courtB"; const court = { ...state[key] }; court[slot] = null; return { ...state, [key]: court }; }),
         getOnCourtPlayerIds: (teamId) => { const state = get(); const court = teamId === "A" ? state.courtA : state.courtB; return Object.values(court).filter(Boolean) as string[]; },
@@ -516,8 +508,6 @@ export const useMatchStore = create<MatchStore>()(
           const pointsToWin = pointsToWinForSet(state.setRules, state.setNumber);
           const computedWinner = winner ?? hasSetWinner(state.scoreA, state.scoreB, pointsToWin, state.setRules.winBy);
           if (!computedWinner) return { ...state, toast: makeToast("Set not finished.", "warn") };
-          
-          // ✅ PASS FULL STATE TO BUILD SAVED SET TO CAPTURE LIBEROS/SUBS
           const saved = buildSavedSet({ 
               setNumber: state.setNumber, 
               pointsToWin, 
@@ -533,7 +523,6 @@ export const useMatchStore = create<MatchStore>()(
               liberoConfigA: state.liberoConfigA,
               liberoConfigB: state.liberoConfigB
           });
-          
           const nextSetsWonA = computedWinner === "A" ? state.setsWonA + 1 : state.setsWonA;
           const nextSetsWonB = computedWinner === "B" ? state.setsWonB + 1 : state.setsWonB;
           const setsNeeded = Math.ceil(state.setRules.bestOf / 2);
@@ -625,7 +614,6 @@ export const useMatchStore = create<MatchStore>()(
                  finalScoreB: nextScoreB, 
                  events: state.events.slice().reverse(), 
                  players: state.players,
-                 // ✅ Pass extra context to catch zero-stat players
                  courtA: nextCourtA,
                  courtB: nextCourtB,
                  activeSubsA: state.activeSubsA,
@@ -652,7 +640,7 @@ export const useMatchStore = create<MatchStore>()(
     },
     {
       name: "vb-match-store",
-      version: 32, // Version Bump
+      version: 33, // Updated for auto-discovery
       migrate: (persisted: any) => ({ ...persisted, trackerMode: persisted?.trackerMode || "FULL" }),
       partialize: (state) => ({ players: state.players, courtA: state.courtA, courtB: state.courtB, scoreA: state.scoreA, scoreB: state.scoreB, servingTeam: state.servingTeam, events: state.events, leftTeam: state.leftTeam, liberoConfigA: state.liberoConfigA, liberoConfigB: state.liberoConfigB, rallyCount: state.rallyCount, rallyInProgress: state.rallyInProgress, serviceRunTeam: state.serviceRunTeam, serviceRunCount: state.serviceRunCount, liberoSwapA: state.liberoSwapA, liberoSwapB: state.liberoSwapB, setRules: state.setRules, setNumber: state.setNumber, setsWonA: state.setsWonA, setsWonB: state.setsWonB, savedSets: state.savedSets, subsUsedA: state.subsUsedA, subsUsedB: state.subsUsedB, activeSubsA: state.activeSubsA, activeSubsB: state.activeSubsB, trackerMode: state.trackerMode }),
     }
