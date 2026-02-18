@@ -215,7 +215,7 @@ const positionGroupFromPlayer = (p: Player | null | undefined): PositionGroup =>
   const pos = normKey(p?.position ?? "");
   if (pos === "OH" || pos.includes("OUTSIDE")) return "OH";
   if (pos === "OPP" || pos.includes("OPPOSITE") || pos.includes("RIGHT")) return "OPP";
-  if (pos === "S" || pos === "SETTER") return "S";
+  if (pos === "S" || pos.includes("SETTER")) return "S";
   if (pos === "L" || pos === "LIBERO") return "L";
   if (p?.position === "MB" || pos.includes("MIDDLE")) return "MB";
   return "OTHER";
@@ -313,6 +313,35 @@ export const useMatchStore = create<MatchStore>()(
       const setSwapPatch = (teamId: TeamId, swap: LiberoSwap) => teamId === "A" ? { liberoSwapA: swap } : { liberoSwapB: swap };
 
       const buildSavedSet = (params: any): SavedSet => {
+        // ✅ 1. Start by gathering ALL players who participated, even without stats
+        const participatedPlayerIds = new Set<string>();
+
+        // From Events (anyone who did something or subbed in)
+        for (const ev of params.events) {
+            if (ev.playerId) participatedPlayerIds.add(ev.playerId);
+        }
+
+        // From Final Court State (starters/finishers who didn't touch ball)
+        const addFromCourt = (court: CourtState) => Object.values(court).forEach(pid => pid && participatedPlayerIds.add(pid));
+        addFromCourt(params.courtA);
+        addFromCourt(params.courtB);
+
+        // From Active Subs (starters who were subbed out)
+        const addFromSubs = (subs: Record<string, string>) => Object.values(subs).forEach(pid => pid && participatedPlayerIds.add(pid));
+        addFromSubs(params.activeSubsA);
+        addFromSubs(params.activeSubsB);
+
+        // From Liberos (if enabled)
+        if (params.liberoConfigA.enabled) {
+            if (params.liberoConfigA.liberoId) participatedPlayerIds.add(params.liberoConfigA.liberoId);
+            if (params.liberoConfigA.secondLiberoId) participatedPlayerIds.add(params.liberoConfigA.secondLiberoId);
+        }
+        if (params.liberoConfigB.enabled) {
+            if (params.liberoConfigB.liberoId) participatedPlayerIds.add(params.liberoConfigB.liberoId);
+            if (params.liberoConfigB.secondLiberoId) participatedPlayerIds.add(params.liberoConfigB.secondLiberoId);
+        }
+
+        // ✅ 2. Calculate Stats
         const perPlayerCounts: Record<string, Record<StatKey, number>> = {};
         for (const ev of params.events) {
           const k = classifyForPog(ev.skillKey, ev.outcomeKey);
@@ -321,11 +350,15 @@ export const useMatchStore = create<MatchStore>()(
             perPlayerCounts[ev.playerId][k] += 1;
           }
         }
+
+        // ✅ 3. Build Final Record (Includes 0-stat players)
         const perPlayer: Record<string, PlayerSetStats> = {};
-        for (const [pid, counts] of Object.entries(perPlayerCounts)) {
-          const p = params.players.find((x: any) => x.id === pid);
-          if (p) perPlayer[pid] = { counts, pogPoints: calcPlayerPogPoints(p, counts) };
-        }
+        participatedPlayerIds.forEach(pid => {
+             const p = params.players.find((x: any) => x.id === pid);
+             const counts = perPlayerCounts[pid] || emptyCounts();
+             if (p) perPlayer[pid] = { counts, pogPoints: calcPlayerPogPoints(p, counts) };
+        });
+
         return { id: crypto.randomUUID(), ts: Date.now(), ...params, perPlayer };
       };
 
@@ -345,7 +378,6 @@ export const useMatchStore = create<MatchStore>()(
         trackerMode: "FULL",
         setTrackerMode: (mode) => set({ trackerMode: mode }),
         
-        // ✅ 3-LAYER DEDUPLICATION
         importEvents: (externalEvents) => set((state) => {
             const existingIds = new Set(state.events.map(e => e.id));
             const savedEvents = state.savedSets.flatMap(s => s.events);
@@ -354,13 +386,9 @@ export const useMatchStore = create<MatchStore>()(
             const currentSetNumber = state.setNumber;
 
             const freshEvents = externalEvents.filter(e => {
-                // 1. SET FILTER: Block events from previous sets
                 if (e.prevSetNumber !== currentSetNumber) return false;
-
-                // 2. ID Match: Block strict ID duplicates
                 if (existingIds.has(e.id)) return false;
                 
-                // 3. Scoring Check: Block any scoring event if one exists in 5s window
                 const isScoring = e.outcomeKey.includes("KILL") || e.outcomeKey.includes("ACE") || e.outcomeKey.includes("POINT");
                 if (isScoring) {
                     const duplicateScore = [...state.events, ...savedEvents].some(existing => {
@@ -370,7 +398,6 @@ export const useMatchStore = create<MatchStore>()(
                     if (duplicateScore) return false; 
                 }
 
-                // 4. General Fuzzy Check: Block duplicate actions in 2s window
                 const isFuzzyDuplicate = [...state.events, ...savedEvents].some(existing => 
                     existing.playerId === e.playerId &&
                     existing.skillKey === e.skillKey &&
@@ -489,7 +516,24 @@ export const useMatchStore = create<MatchStore>()(
           const pointsToWin = pointsToWinForSet(state.setRules, state.setNumber);
           const computedWinner = winner ?? hasSetWinner(state.scoreA, state.scoreB, pointsToWin, state.setRules.winBy);
           if (!computedWinner) return { ...state, toast: makeToast("Set not finished.", "warn") };
-          const saved = buildSavedSet({ setNumber: state.setNumber, pointsToWin, winner: computedWinner, finalScoreA: state.scoreA, finalScoreB: state.scoreB, events: state.events.slice().reverse(), players: state.players });
+          
+          // ✅ PASS FULL STATE TO BUILD SAVED SET TO CAPTURE LIBEROS/SUBS
+          const saved = buildSavedSet({ 
+              setNumber: state.setNumber, 
+              pointsToWin, 
+              winner: computedWinner, 
+              finalScoreA: state.scoreA, 
+              finalScoreB: state.scoreB, 
+              events: state.events.slice().reverse(), 
+              players: state.players,
+              courtA: state.courtA,
+              courtB: state.courtB,
+              activeSubsA: state.activeSubsA,
+              activeSubsB: state.activeSubsB,
+              liberoConfigA: state.liberoConfigA,
+              liberoConfigB: state.liberoConfigB
+          });
+          
           const nextSetsWonA = computedWinner === "A" ? state.setsWonA + 1 : state.setsWonA;
           const nextSetsWonB = computedWinner === "B" ? state.setsWonB + 1 : state.setsWonB;
           const setsNeeded = Math.ceil(state.setRules.bestOf / 2);
@@ -573,7 +617,22 @@ export const useMatchStore = create<MatchStore>()(
           const pointsToWin = pointsToWinForSet(state.setRules, state.setNumber);
           const winner = hasSetWinner(nextScoreA, nextScoreB, pointsToWin, state.setRules.winBy);
           if (winner) {
-             const saved = buildSavedSet({ setNumber: state.setNumber, pointsToWin, winner, finalScoreA: nextScoreA, finalScoreB: nextScoreB, events: state.events.slice().reverse(), players: state.players });
+             const saved = buildSavedSet({ 
+                 setNumber: state.setNumber, 
+                 pointsToWin, 
+                 winner, 
+                 finalScoreA: nextScoreA, 
+                 finalScoreB: nextScoreB, 
+                 events: state.events.slice().reverse(), 
+                 players: state.players,
+                 // ✅ Pass extra context to catch zero-stat players
+                 courtA: nextCourtA,
+                 courtB: nextCourtB,
+                 activeSubsA: state.activeSubsA,
+                 activeSubsB: state.activeSubsB,
+                 liberoConfigA: state.liberoConfigA,
+                 liberoConfigB: state.liberoConfigB
+             });
              const nextSetsWonA = winner === "A" ? state.setsWonA + 1 : state.setsWonA;
              const nextSetsWonB = winner === "B" ? state.setsWonB + 1 : state.setsWonB;
              if (nextSetsWonA >= setsNeeded || nextSetsWonB >= setsNeeded) return { ...newState, savedSets: [saved, ...state.savedSets], setsWonA: nextSetsWonA, setsWonB: nextSetsWonB, events: [], toast: makeToast(`Match Over!`, "info") };
@@ -582,7 +641,6 @@ export const useMatchStore = create<MatchStore>()(
           }
           return newState;
         }),
-        // ✅ DECREMENT WITHOUT ROTATION
         decrementScore: (teamId) => set((state) => {
             const nextScore = teamId === "A" ? Math.max(0, state.scoreA - 1) : Math.max(0, state.scoreB - 1);
             if (state.servingTeam === teamId && (teamId === "A" ? state.scoreA : state.scoreB) > 0) {
@@ -594,7 +652,7 @@ export const useMatchStore = create<MatchStore>()(
     },
     {
       name: "vb-match-store",
-      version: 31, // Version Bump for Deduplication logic
+      version: 32, // Version Bump
       migrate: (persisted: any) => ({ ...persisted, trackerMode: persisted?.trackerMode || "FULL" }),
       partialize: (state) => ({ players: state.players, courtA: state.courtA, courtB: state.courtB, scoreA: state.scoreA, scoreB: state.scoreB, servingTeam: state.servingTeam, events: state.events, leftTeam: state.leftTeam, liberoConfigA: state.liberoConfigA, liberoConfigB: state.liberoConfigB, rallyCount: state.rallyCount, rallyInProgress: state.rallyInProgress, serviceRunTeam: state.serviceRunTeam, serviceRunCount: state.serviceRunCount, liberoSwapA: state.liberoSwapA, liberoSwapB: state.liberoSwapB, setRules: state.setRules, setNumber: state.setNumber, setsWonA: state.setsWonA, setsWonB: state.setsWonB, savedSets: state.savedSets, subsUsedA: state.subsUsedA, subsUsedB: state.subsUsedB, activeSubsA: state.activeSubsA, activeSubsB: state.activeSubsB, trackerMode: state.trackerMode }),
     }
