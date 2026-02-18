@@ -409,7 +409,7 @@ export const useMatchStore = create<MatchStore>()(
         removePlayer: (id) => set((state) => ({ players: state.players.filter((p) => p.id !== id) })),
         subsUsedA: 0, subsUsedB: 0, activeSubsA: {}, activeSubsB: {},
         
-        // ✅ UPDATED ASSIGNMENT: AUTO-ADDS MIDDLE BLOCKERS TO REPLACEMENT LIST
+        // ✅ AUTO-DETECT LIBERO REPLACEMENTS (MB, OH, OPP, OTHER)
         assignPlayerToSlot: (teamId, slot, playerId) => set((state) => {
           const isMidGame = state.events.length > 0 || state.scoreA > 0 || state.scoreB > 0;
           const key = teamId === "A" ? "courtA" : "courtB"; 
@@ -418,16 +418,14 @@ export const useMatchStore = create<MatchStore>()(
           let court = { ...state[key] };
           let activeSubs = { ...state[subKey] };
           let subsUsed = state[countKey];
-          
           const currentPlayerId = court[slot];
           const pIn = state.players.find(p => p.id === playerId);
           const pOut = state.players.find(p => p.id === currentPlayerId);
           const inIsLibero = isLiberoPlayer(pIn);
           const outIsLibero = isLiberoPlayer(pOut);
-          
           const isLiberoRegularSwap = (inIsLibero && !outIsLibero) || (!inIsLibero && outIsLibero);
           const isSubstitution = isMidGame && !inIsLibero && !outIsLibero;
-
+          
           if (isSubstitution) {
               if (subsUsed >= 6) return { ...state, toast: makeToast("Sub limit reached.", "error") };
               if (currentPlayerId) {
@@ -441,20 +439,19 @@ export const useMatchStore = create<MatchStore>()(
               }
               subsUsed++;
           }
-
+          
           court[slot] = playerId;
           
           const currentConfig = teamId === "A" ? state.liberoConfigA : state.liberoConfigB;
           let newConfig = { ...currentConfig };
           
-          // ✅ AUTO-CONFIGURATION LOGIC
           if (inIsLibero) {
               newConfig.liberoId = playerId;
               newConfig.enabled = true;
           } else {
-              // If dragging a Middle Blocker (or relevant role), auto-add to replacement list
+              // ✅ MODIFIED: ALLOW ANY HITTER (MB, OH, OPP) TO BE A REPLACEMENT
               const role = positionGroupFromPlayer(pIn);
-              if (role === "MB" || role === "OTHER") {
+              if (role === "MB" || role === "OH" || role === "OPP" || role === "OTHER") {
                   const currentReps = newConfig.replacementIds || [];
                   if (!currentReps.includes(playerId) && currentReps.length < 2) {
                       newConfig.replacementIds = [...currentReps, playerId];
@@ -640,7 +637,7 @@ export const useMatchStore = create<MatchStore>()(
     },
     {
       name: "vb-match-store",
-      version: 33, // Updated for auto-discovery
+      version: 34, // Version Bump for new Libero Auto-Detect
       migrate: (persisted: any) => ({ ...persisted, trackerMode: persisted?.trackerMode || "FULL" }),
       partialize: (state) => ({ players: state.players, courtA: state.courtA, courtB: state.courtB, scoreA: state.scoreA, scoreB: state.scoreB, servingTeam: state.servingTeam, events: state.events, leftTeam: state.leftTeam, liberoConfigA: state.liberoConfigA, liberoConfigB: state.liberoConfigB, rallyCount: state.rallyCount, rallyInProgress: state.rallyInProgress, serviceRunTeam: state.serviceRunTeam, serviceRunCount: state.serviceRunCount, liberoSwapA: state.liberoSwapA, liberoSwapB: state.liberoSwapB, setRules: state.setRules, setNumber: state.setNumber, setsWonA: state.setsWonA, setsWonB: state.setsWonB, savedSets: state.savedSets, subsUsedA: state.subsUsedA, subsUsedB: state.subsUsedB, activeSubsA: state.activeSubsA, activeSubsB: state.activeSubsB, trackerMode: state.trackerMode }),
     }
