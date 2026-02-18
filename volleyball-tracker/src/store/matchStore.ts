@@ -170,6 +170,7 @@ function applyLiberoAutomation(params: { teamId: TeamId; court: CourtState; play
 type RoleKey = "WINGERS" | "MIDDLE_BLOCKER" | "LIBERO" | "SETTER";
 type StatKey = "SERVE_ACE" | "SERVE_SUCCESS" | "SERVE_ERROR" | "RECEPTION_EXC" | "RECEPTION_ATT" | "RECEPTION_ERR" | "DIG_EXC" | "DIG_ATT" | "DIG_ERR" | "ATTACK_KILL" | "ATTACK_ATT" | "ATTACK_ERR" | "BLOCK_KILL" | "BLOCK_ERR" | "SET_EXC" | "SET_RUN" | "SET_ERR";
 
+// ✅ POG UPDATED: DIG_ERR is -2 for Libero only.
 const POG_MULTIPLIERS: Record<RoleKey, Record<StatKey, number>> = {
   WINGERS: { SERVE_ACE: 2, SERVE_SUCCESS: 1, SERVE_ERROR: -2, RECEPTION_EXC: 2, RECEPTION_ATT: 1, RECEPTION_ERR: -2, DIG_EXC: 2, DIG_ATT: 1, DIG_ERR: 0, ATTACK_KILL: 2, ATTACK_ATT: 0, ATTACK_ERR: -2, BLOCK_KILL: 2, BLOCK_ERR: -2, SET_EXC: 0, SET_RUN: 0, SET_ERR: 0 },
   MIDDLE_BLOCKER: { SERVE_ACE: 2, SERVE_SUCCESS: 1, SERVE_ERROR: -2, RECEPTION_EXC: 0, RECEPTION_ATT: 0, RECEPTION_ERR: 0, DIG_EXC: 2, DIG_ATT: 1, DIG_ERR: 0, ATTACK_KILL: 4, ATTACK_ATT: 0, ATTACK_ERR: -4, BLOCK_KILL: 4, BLOCK_ERR: -4, SET_EXC: 0, SET_RUN: 0, SET_ERR: 0 },
@@ -283,6 +284,9 @@ type MatchStore = {
   trackerMode: TrackerMode; 
   setTrackerMode: (mode: TrackerMode) => void; 
   importEvents: (externalEvents: InternalEvent[]) => void; 
+  // ✅ ADDED EXPORT HELPER
+  getExportableEvents: () => InternalEvent[]; 
+
   players: Player[]; courtA: CourtState; courtB: CourtState; leftTeam: TeamId; setLeftTeam: (teamId: TeamId) => void; swapSides: () => void;
   selected: { teamId: TeamId; slot: RotationSlot; mode?: "default" | "bench" } | null; selectSlot: (teamId: TeamId, slot: RotationSlot, mode?: "default" | "bench") => void; clearSelection: () => void;
   toast: ToastState | null; setToast: (message: string, type?: ToastType) => void; clearToast: () => void;
@@ -313,6 +317,23 @@ export const useMatchStore = create<MatchStore>()(
       const setSwapPatch = (teamId: TeamId, swap: LiberoSwap) => teamId === "A" ? { liberoSwapA: swap } : { liberoSwapB: swap };
 
       const buildSavedSet = (params: any): SavedSet => {
+        // ✅ 1. Gather ALL players who participated, even without stats
+        const participatedPlayerIds = new Set<string>();
+        for (const ev of params.events) { if (ev.playerId) participatedPlayerIds.add(ev.playerId); }
+        if (params.courtA) Object.values(params.courtA as CourtState).forEach(pid => pid && participatedPlayerIds.add(pid));
+        if (params.courtB) Object.values(params.courtB as CourtState).forEach(pid => pid && participatedPlayerIds.add(pid));
+        if (params.activeSubsA) Object.values(params.activeSubsA as Record<string,string>).forEach(pid => pid && participatedPlayerIds.add(pid));
+        if (params.activeSubsB) Object.values(params.activeSubsB as Record<string,string>).forEach(pid => pid && participatedPlayerIds.add(pid));
+        if (params.liberoConfigA?.enabled) {
+            if (params.liberoConfigA.liberoId) participatedPlayerIds.add(params.liberoConfigA.liberoId);
+            if (params.liberoConfigA.secondLiberoId) participatedPlayerIds.add(params.liberoConfigA.secondLiberoId);
+        }
+        if (params.liberoConfigB?.enabled) {
+            if (params.liberoConfigB.liberoId) participatedPlayerIds.add(params.liberoConfigB.liberoId);
+            if (params.liberoConfigB.secondLiberoId) participatedPlayerIds.add(params.liberoConfigB.secondLiberoId);
+        }
+
+        // ✅ 2. Calculate Stats
         const perPlayerCounts: Record<string, Record<StatKey, number>> = {};
         for (const ev of params.events) {
           const k = classifyForPog(ev.skillKey, ev.outcomeKey);
@@ -321,11 +342,15 @@ export const useMatchStore = create<MatchStore>()(
             perPlayerCounts[ev.playerId][k] += 1;
           }
         }
+
+        // ✅ 3. Build Final Record
         const perPlayer: Record<string, PlayerSetStats> = {};
-        for (const [pid, counts] of Object.entries(perPlayerCounts)) {
-          const p = params.players.find((x: any) => x.id === pid);
-          if (p) perPlayer[pid] = { counts, pogPoints: calcPlayerPogPoints(p, counts) };
-        }
+        participatedPlayerIds.forEach(pid => {
+             const p = params.players.find((x: any) => x.id === pid);
+             const counts = perPlayerCounts[pid] || emptyCounts();
+             if (p) perPlayer[pid] = { counts, pogPoints: calcPlayerPogPoints(p, counts) };
+        });
+
         return { id: crypto.randomUUID(), ts: Date.now(), ...params, perPlayer };
       };
 
@@ -345,27 +370,118 @@ export const useMatchStore = create<MatchStore>()(
         trackerMode: "FULL",
         setTrackerMode: (mode) => set({ trackerMode: mode }),
         
-        importEvents: (externalEvents) => set((state) => {
-            const existingIds = new Set(state.events.map(e => e.id));
-            const savedEvents = state.savedSets.flatMap(s => s.events);
-            savedEvents.forEach(e => existingIds.add(e.id));
-            
-            const currentSetNumber = state.setNumber;
+        getExportableEvents: () => {
+            const s = get();
+            return [...s.savedSets.flatMap(set => set.events), ...s.events];
+        },
 
-            const freshEvents = externalEvents.filter(e => {
+        importEvents: (externalEvents) => set((state) => {
+            const currentSetNumber = state.setNumber;
+            const allSetNumbers = new Set(externalEvents.map(e => e.prevSetNumber || 1));
+            
+            // 1. RECONSTRUCT MISSING SETS
+            const newSavedSets: SavedSet[] = [];
+            const existingSavedNumbers = new Set(state.savedSets.map(s => s.setNumber));
+
+            allSetNumbers.forEach(setNum => {
+                if (setNum === currentSetNumber) return; 
+                if (existingSavedNumbers.has(setNum)) return; 
+
+                const setEvents = externalEvents
+                    .filter(e => e.prevSetNumber === setNum)
+                    .sort((a, b) => a.ts - b.ts);
+                
+                if (setEvents.length === 0) return;
+
+                const lastEv = setEvents[setEvents.length - 1];
+                let finalScoreA = lastEv.prevScoreA;
+                let finalScoreB = lastEv.prevScoreB;
+                const isScoring = lastEv.outcomeKey.includes("KILL") || lastEv.outcomeKey.includes("ACE") || lastEv.outcomeKey.includes("POINT");
+                if (isScoring && lastEv.pointWinner) {
+                    if (lastEv.pointWinner === "A") finalScoreA++; else finalScoreB++;
+                }
+
+                const pointsToWin = pointsToWinForSet(state.setRules, setNum);
+                const winner = hasSetWinner(finalScoreA, finalScoreB, pointsToWin, state.setRules.winBy) || (finalScoreA > finalScoreB ? "A" : "B");
+
+                const reconstructed = buildSavedSet({
+                    setNumber: setNum,
+                    pointsToWin,
+                    winner,
+                    finalScoreA,
+                    finalScoreB,
+                    events: setEvents,
+                    players: state.players,
+                    courtA: lastEv.prevCourtA || emptyCourt(),
+                    courtB: lastEv.prevCourtB || emptyCourt(),
+                    activeSubsA: lastEv.prevActiveSubsA || {},
+                    activeSubsB: lastEv.prevActiveSubsB || {},
+                    liberoConfigA: defaultLiberoConfig(),
+                    liberoConfigB: defaultLiberoConfig()
+                });
+                newSavedSets.push(reconstructed);
+            });
+
+            // 2. UPDATE EXISTING SETS (Merge History)
+            const updatedSavedSets = state.savedSets.map(savedSet => {
+                const relevantIncoming = externalEvents.filter(e => e.prevSetNumber === savedSet.setNumber);
+                if (relevantIncoming.length === 0) return savedSet;
+
+                const existingIds = new Set(savedSet.events.map(e => e.id));
+                const uniqueNew = relevantIncoming.filter(e => {
+                    if (existingIds.has(e.id)) return false;
+                    const isScoring = e.outcomeKey.includes("KILL") || e.outcomeKey.includes("ACE") || e.outcomeKey.includes("POINT");
+                    if (isScoring) {
+                        const duplicateScore = savedSet.events.some(existing => {
+                            const existingIsScoring = existing.outcomeKey.includes("KILL") || existing.outcomeKey.includes("ACE") || existing.outcomeKey.includes("POINT");
+                            return existingIsScoring && Math.abs(existing.ts - e.ts) < 5000;
+                        });
+                        if (duplicateScore) return false;
+                    }
+                    return true; 
+                });
+
+                if (uniqueNew.length === 0) return savedSet;
+
+                const mergedEvents = [...savedSet.events, ...uniqueNew].sort((a, b) => a.ts - b.ts);
+                
+                // Re-build this specific set stat block
+                const participatedPlayerIds = new Set<string>();
+                for (const ev of mergedEvents) { if (ev.playerId) participatedPlayerIds.add(ev.playerId); }
+                const perPlayerCounts: Record<string, Record<StatKey, number>> = {};
+                for (const ev of mergedEvents) {
+                    const k = classifyForPog(ev.skillKey, ev.outcomeKey);
+                    if (k) {
+                        if (!perPlayerCounts[ev.playerId]) perPlayerCounts[ev.playerId] = emptyCounts();
+                        perPlayerCounts[ev.playerId][k] += 1;
+                    }
+                }
+                const perPlayer: Record<string, PlayerSetStats> = {};
+                participatedPlayerIds.forEach(pid => {
+                    const p = state.players.find((x: any) => x.id === pid);
+                    const counts = perPlayerCounts[pid] || emptyCounts();
+                    if (p) perPlayer[pid] = { counts, pogPoints: calcPlayerPogPoints(p, counts) };
+                });
+
+                return { ...savedSet, events: mergedEvents, perPlayer };
+            });
+
+            // 3. MERGE CURRENT SET
+            const existingIds = new Set(state.events.map(e => e.id));
+            const currentFreshEvents = externalEvents.filter(e => {
                 if (e.prevSetNumber !== currentSetNumber) return false;
                 if (existingIds.has(e.id)) return false;
                 
                 const isScoring = e.outcomeKey.includes("KILL") || e.outcomeKey.includes("ACE") || e.outcomeKey.includes("POINT");
                 if (isScoring) {
-                    const duplicateScore = [...state.events, ...savedEvents].some(existing => {
+                    const duplicateScore = state.events.some(existing => {
                         const existingIsScoring = existing.outcomeKey.includes("KILL") || existing.outcomeKey.includes("ACE") || existing.outcomeKey.includes("POINT");
                         return existingIsScoring && Math.abs(existing.ts - e.ts) < 5000; 
                     });
                     if (duplicateScore) return false; 
                 }
-
-                const isFuzzyDuplicate = [...state.events, ...savedEvents].some(existing => 
+                
+                const isFuzzyDuplicate = state.events.some(existing => 
                     existing.playerId === e.playerId &&
                     existing.skillKey === e.skillKey &&
                     existing.outcomeKey === e.outcomeKey &&
@@ -374,8 +490,19 @@ export const useMatchStore = create<MatchStore>()(
                 return !isFuzzyDuplicate;
             });
 
-            const merged = [...state.events, ...freshEvents].sort((a, b) => b.ts - a.ts);
-            return { events: merged, toast: makeToast(`Imported ${freshEvents.length} unique events.`, "info") };
+            const mergedCurrent = [...state.events, ...currentFreshEvents].sort((a, b) => a.ts - b.ts);
+            
+            const finalSavedSets = [...updatedSavedSets, ...newSavedSets].sort((a,b) => a.setNumber - b.setNumber);
+            const wonA = finalSavedSets.filter(s => s.winner === "A").length;
+            const wonB = finalSavedSets.filter(s => s.winner === "B").length;
+
+            return { 
+                events: mergedCurrent, 
+                savedSets: finalSavedSets,
+                setsWonA: wonA,
+                setsWonB: wonB,
+                toast: makeToast(`Imported ${externalEvents.length} events (History Rebuilt).`, "info") 
+            };
         }),
 
         players: [], courtA: emptyCourt(), courtB: emptyCourt(), leftTeam: "A", setLeftTeam: (teamId) => set({ leftTeam: teamId }), swapSides: () => set((state) => ({ leftTeam: state.leftTeam === "A" ? "B" : "A" })),
@@ -408,8 +535,6 @@ export const useMatchStore = create<MatchStore>()(
         setPlayers: (players) => set({ players }), addPlayer: (player) => set((state) => ({ players: [...state.players, player] })), updatePlayer: (id, patch) => set((state) => ({ players: state.players.map((p) => p.id === id ? { ...p, ...patch } : p) })),
         removePlayer: (id) => set((state) => ({ players: state.players.filter((p) => p.id !== id) })),
         subsUsedA: 0, subsUsedB: 0, activeSubsA: {}, activeSubsB: {},
-        
-        // ✅ REVERTED TO STRICT IDENTIFIER MATCHING
         assignPlayerToSlot: (teamId, slot, playerId) => set((state) => {
           const isMidGame = state.events.length > 0 || state.scoreA > 0 || state.scoreB > 0;
           const key = teamId === "A" ? "courtA" : "courtB"; 
@@ -439,23 +564,16 @@ export const useMatchStore = create<MatchStore>()(
               }
               subsUsed++;
           }
-          
           court[slot] = playerId;
-          
           const currentConfig = teamId === "A" ? state.liberoConfigA : state.liberoConfigB;
           let newConfig = { ...currentConfig };
-          
           if (inIsLibero) {
               newConfig.liberoId = playerId;
               newConfig.enabled = true;
           }
-          // ❌ REMOVED: Auto-adding players to replacementIds based on role.
-          // The system now strictly relies on the existing `newConfig.replacementIds` set by the user.
-
           const applied = applyLiberoAutomation({ teamId, court, players: state.players, config: newConfig, swap: getSwap(state, teamId), servingTeam: state.servingTeam });
           const nextState: any = { ...state, [key]: applied.court, ...setSwapPatch(teamId, applied.swap), [subKey]: activeSubs, [countKey]: subsUsed };
           if (teamId === "A") nextState.liberoConfigA = newConfig; else nextState.liberoConfigB = newConfig;
-          
           if (isSubstitution) {
               const subEvent: InternalEvent = {
                 id: crypto.randomUUID(), ts: Date.now(), teamId, playerId, slot, skill: "SUBSTITUTION" as any, outcome: "None" as any, trackerMode: state.trackerMode,
@@ -470,7 +588,6 @@ export const useMatchStore = create<MatchStore>()(
           if (applied.toast) nextState.toast = applied.toast;
           return nextState;
         }),
-        
         substituteInSlot: (teamId, slot, newPlayerId) => get().assignPlayerToSlot(teamId, slot, newPlayerId),
         clearSlot: (teamId, slot) => set((state) => { const key = teamId === "A" ? "courtA" : "courtB"; const court = { ...state[key] }; court[slot] = null; return { ...state, [key]: court }; }),
         getOnCourtPlayerIds: (teamId) => { const state = get(); const court = teamId === "A" ? state.courtA : state.courtB; return Object.values(court).filter(Boolean) as string[]; },
@@ -614,7 +731,7 @@ export const useMatchStore = create<MatchStore>()(
              const nextSetsWonB = winner === "B" ? state.setsWonB + 1 : state.setsWonB;
              if (nextSetsWonA >= setsNeeded || nextSetsWonB >= setsNeeded) return { ...newState, savedSets: [saved, ...state.savedSets], setsWonA: nextSetsWonA, setsWonB: nextSetsWonB, events: [], toast: makeToast(`Match Over!`, "info") };
              const after = resetAfterSet(newState as MatchStore, winner === "A" ? "B" : "A");
-             return { ...newState, savedSets: [saved, ...state.savedSets], setsWonA: nextSetsWonA, setsWonB: nextSetsWonB, setNumber: state.setNumber + 1, ...after as any, toast: makeToast(`Set won by ${winner}`, "info") };
+             return { ...newState, savedSets: [saved, ...state.savedSets], setsWonA: nextSetsWonA, setsWonB: nextSetsWonB, setNumber: state.setNumber + 1, ...after as any, toast: makeToast(`Set ${state.setNumber} won.`, "info") };
           }
           return newState;
         }),
@@ -629,7 +746,7 @@ export const useMatchStore = create<MatchStore>()(
     },
     {
       name: "vb-match-store",
-      version: 34,
+      version: 36,
       migrate: (persisted: any) => ({ ...persisted, trackerMode: persisted?.trackerMode || "FULL" }),
       partialize: (state) => ({ players: state.players, courtA: state.courtA, courtB: state.courtB, scoreA: state.scoreA, scoreB: state.scoreB, servingTeam: state.servingTeam, events: state.events, leftTeam: state.leftTeam, liberoConfigA: state.liberoConfigA, liberoConfigB: state.liberoConfigB, rallyCount: state.rallyCount, rallyInProgress: state.rallyInProgress, serviceRunTeam: state.serviceRunTeam, serviceRunCount: state.serviceRunCount, liberoSwapA: state.liberoSwapA, liberoSwapB: state.liberoSwapB, setRules: state.setRules, setNumber: state.setNumber, setsWonA: state.setsWonA, setsWonB: state.setsWonB, savedSets: state.savedSets, subsUsedA: state.subsUsedA, subsUsedB: state.subsUsedB, activeSubsA: state.activeSubsA, activeSubsB: state.activeSubsB, trackerMode: state.trackerMode }),
     }
