@@ -409,7 +409,7 @@ export const useMatchStore = create<MatchStore>()(
         removePlayer: (id) => set((state) => ({ players: state.players.filter((p) => p.id !== id) })),
         subsUsedA: 0, subsUsedB: 0, activeSubsA: {}, activeSubsB: {},
         
-        // ✅ AUTO-DETECT LIBERO REPLACEMENTS (MB, OH, OPP, OTHER)
+        // ✅ REVERTED TO STRICT IDENTIFIER MATCHING
         assignPlayerToSlot: (teamId, slot, playerId) => set((state) => {
           const isMidGame = state.events.length > 0 || state.scoreA > 0 || state.scoreB > 0;
           const key = teamId === "A" ? "courtA" : "courtB"; 
@@ -448,17 +448,9 @@ export const useMatchStore = create<MatchStore>()(
           if (inIsLibero) {
               newConfig.liberoId = playerId;
               newConfig.enabled = true;
-          } else {
-              // ✅ MODIFIED: ALLOW ANY HITTER (MB, OH, OPP) TO BE A REPLACEMENT
-              const role = positionGroupFromPlayer(pIn);
-              if (role === "MB" || role === "OH" || role === "OPP" || role === "OTHER") {
-                  const currentReps = newConfig.replacementIds || [];
-                  if (!currentReps.includes(playerId) && currentReps.length < 2) {
-                      newConfig.replacementIds = [...currentReps, playerId];
-                      newConfig.enabled = true;
-                  }
-              }
           }
+          // ❌ REMOVED: Auto-adding players to replacementIds based on role.
+          // The system now strictly relies on the existing `newConfig.replacementIds` set by the user.
 
           const applied = applyLiberoAutomation({ teamId, court, players: state.players, config: newConfig, swap: getSwap(state, teamId), servingTeam: state.servingTeam });
           const nextState: any = { ...state, [key]: applied.court, ...setSwapPatch(teamId, applied.swap), [subKey]: activeSubs, [countKey]: subsUsed };
@@ -637,7 +629,7 @@ export const useMatchStore = create<MatchStore>()(
     },
     {
       name: "vb-match-store",
-      version: 34, // Version Bump for new Libero Auto-Detect
+      version: 34,
       migrate: (persisted: any) => ({ ...persisted, trackerMode: persisted?.trackerMode || "FULL" }),
       partialize: (state) => ({ players: state.players, courtA: state.courtA, courtB: state.courtB, scoreA: state.scoreA, scoreB: state.scoreB, servingTeam: state.servingTeam, events: state.events, leftTeam: state.leftTeam, liberoConfigA: state.liberoConfigA, liberoConfigB: state.liberoConfigB, rallyCount: state.rallyCount, rallyInProgress: state.rallyInProgress, serviceRunTeam: state.serviceRunTeam, serviceRunCount: state.serviceRunCount, liberoSwapA: state.liberoSwapA, liberoSwapB: state.liberoSwapB, setRules: state.setRules, setNumber: state.setNumber, setsWonA: state.setsWonA, setsWonB: state.setsWonB, savedSets: state.savedSets, subsUsedA: state.subsUsedA, subsUsedB: state.subsUsedB, activeSubsA: state.activeSubsA, activeSubsB: state.activeSubsB, trackerMode: state.trackerMode }),
     }
