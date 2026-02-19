@@ -215,7 +215,7 @@ const positionGroupFromPlayer = (p: Player | null | undefined): PositionGroup =>
   const pos = normKey(p?.position ?? "");
   if (pos === "OH" || pos.includes("OUTSIDE")) return "OH";
   if (pos === "OPP" || pos.includes("OPPOSITE") || pos.includes("RIGHT")) return "OPP";
-  if (pos === "S" || pos === "SETTER") return "S";
+  if (pos === "S" || pos.includes("SETTER")) return "S";
   if (pos === "L" || pos === "LIBERO") return "L";
   if (p?.position === "MB" || pos.includes("MIDDLE")) return "MB";
   return "OTHER";
@@ -442,7 +442,6 @@ export const useMatchStore = create<MatchStore>()(
                 if (uniqueNew.length === 0) return savedSet;
 
                 const mergedEvents = [...savedSet.events, ...uniqueNew].sort((a, b) => a.ts - b.ts);
-                
                 const participatedPlayerIds = new Set<string>();
                 for (const ev of mergedEvents) { if (ev.playerId) participatedPlayerIds.add(ev.playerId); }
                 const perPlayerCounts: Record<string, Record<StatKey, number>> = {};
@@ -515,13 +514,28 @@ export const useMatchStore = create<MatchStore>()(
         liberoSwapA: defaultLiberoSwap(), liberoSwapB: defaultLiberoSwap(), rallyCount: 0, rallyInProgress: false, serviceRunTeam: "A", serviceRunCount: 0,
         setRules: defaultSetRules(), setNumber: 1, setsWonA: 0, setsWonB: 0, savedSets: [], updateSetRules: (rules) => set((state) => ({ setRules: { ...state.setRules, ...rules } })),
         
-        // ✅ FIXED: Deduplicate Events by ID before Calculating Full Match Stats
+        // ✅ FIXED: STRICT FULL MATCH AGGREGATION
+        // Prevents double-counting by excluding active events that belong to already-saved sets
         getAllPlayerMatchStats: () => { 
           const s = get(); 
-          const allEventsRaw = [...s.savedSets.flatMap((x) => x.events), ...s.events];
+          
+          // 1. Get all events from saved history (Set 1, Set 2...)
+          const savedEvents = s.savedSets.flatMap((x) => x.events);
+          
+          // 2. Identify which sets are already saved
+          const savedSetNumbers = new Set(s.savedSets.map(set => set.setNumber));
+
+          // 3. Only grab active events if they belong to a NEW set
+          const validActiveEvents = s.events.filter(e => !savedSetNumbers.has(e.prevSetNumber || 1));
+
+          // 4. Combine
+          const allEventsRaw = [...savedEvents, ...validActiveEvents].sort((a, b) => a.ts - b.ts);
+
+          // 5. Final Safety Deduplication (ID based)
           const uniqueMap = new Map();
           for (const e of allEventsRaw) { uniqueMap.set(e.id, e); }
           const uniqueEvents = Array.from(uniqueMap.values());
+
           return computeMatchStatsFromEvents({ players: s.players, events: uniqueEvents }); 
         },
         
@@ -739,7 +753,7 @@ export const useMatchStore = create<MatchStore>()(
              const nextSetsWonB = winner === "B" ? state.setsWonB + 1 : state.setsWonB;
              if (nextSetsWonA >= setsNeeded || nextSetsWonB >= setsNeeded) return { ...newState, savedSets: [saved, ...state.savedSets], setsWonA: nextSetsWonA, setsWonB: nextSetsWonB, events: [], toast: makeToast(`Match Over!`, "info") };
              const after = resetAfterSet(newState as MatchStore, winner === "A" ? "B" : "A");
-             return { ...newState, savedSets: [saved, ...state.savedSets], setsWonA: nextSetsWonA, setsWonB: nextSetsWonB, setNumber: state.setNumber + 1, ...after as any, toast: makeToast(`Set won by ${winner}`, "info") };
+             return { ...newState, savedSets: [saved, ...state.savedSets], setsWonA: nextSetsWonA, setsWonB: nextSetsWonB, setNumber: state.setNumber + 1, ...after as any, toast: makeToast(`Set ${state.setNumber} won.`, "info") };
           }
           return newState;
         }),
@@ -754,7 +768,7 @@ export const useMatchStore = create<MatchStore>()(
     },
     {
       name: "vb-match-store",
-      version: 37, // Version Bump for Deduplication logic
+      version: 38, // Final Version Bump for Strict Deduplication
       migrate: (persisted: any) => ({ ...persisted, trackerMode: persisted?.trackerMode || "FULL" }),
       partialize: (state) => ({ players: state.players, courtA: state.courtA, courtB: state.courtB, scoreA: state.scoreA, scoreB: state.scoreB, servingTeam: state.servingTeam, events: state.events, leftTeam: state.leftTeam, liberoConfigA: state.liberoConfigA, liberoConfigB: state.liberoConfigB, rallyCount: state.rallyCount, rallyInProgress: state.rallyInProgress, serviceRunTeam: state.serviceRunTeam, serviceRunCount: state.serviceRunCount, liberoSwapA: state.liberoSwapA, liberoSwapB: state.liberoSwapB, setRules: state.setRules, setNumber: state.setNumber, setsWonA: state.setsWonA, setsWonB: state.setsWonB, savedSets: state.savedSets, subsUsedA: state.subsUsedA, subsUsedB: state.subsUsedB, activeSubsA: state.activeSubsA, activeSubsB: state.activeSubsB, trackerMode: state.trackerMode }),
     }
