@@ -215,7 +215,7 @@ const positionGroupFromPlayer = (p: Player | null | undefined): PositionGroup =>
   const pos = normKey(p?.position ?? "");
   if (pos === "OH" || pos.includes("OUTSIDE")) return "OH";
   if (pos === "OPP" || pos.includes("OPPOSITE") || pos.includes("RIGHT")) return "OPP";
-  if (pos === "S" || pos.includes("SETTER")) return "S";
+  if (pos === "S" || pos === "SETTER") return "S";
   if (pos === "L" || pos === "LIBERO") return "L";
   if (p?.position === "MB" || pos.includes("MIDDLE")) return "MB";
   return "OTHER";
@@ -315,7 +315,6 @@ export const useMatchStore = create<MatchStore>()(
       const setSwapPatch = (teamId: TeamId, swap: LiberoSwap) => teamId === "A" ? { liberoSwapA: swap } : { liberoSwapB: swap };
 
       const buildSavedSet = (params: any): SavedSet => {
-        // 1. Gather ALL players who participated
         const participatedPlayerIds = new Set<string>();
         for (const ev of params.events) { if (ev.playerId) participatedPlayerIds.add(ev.playerId); }
         if (params.courtA) Object.values(params.courtA as CourtState).forEach(pid => pid && participatedPlayerIds.add(pid));
@@ -331,7 +330,6 @@ export const useMatchStore = create<MatchStore>()(
             if (params.liberoConfigB.secondLiberoId) participatedPlayerIds.add(params.liberoConfigB.secondLiberoId);
         }
 
-        // 2. Calculate Stats
         const perPlayerCounts: Record<string, Record<StatKey, number>> = {};
         for (const ev of params.events) {
           const k = classifyForPog(ev.skillKey, ev.outcomeKey);
@@ -341,7 +339,6 @@ export const useMatchStore = create<MatchStore>()(
           }
         }
 
-        // 3. Build Final Record
         const perPlayer: Record<string, PlayerSetStats> = {};
         participatedPlayerIds.forEach(pid => {
              const p = params.players.find((x: any) => x.id === pid);
@@ -373,6 +370,7 @@ export const useMatchStore = create<MatchStore>()(
             return [...s.savedSets.flatMap(set => set.events), ...s.events];
         },
 
+        // ✅ FIXED IMPORT: Strict Authority Guards
         importEvents: (externalEvents) => set((state) => {
             const currentSetNumber = state.setNumber;
             const allSetNumbers = new Set(externalEvents.map(e => e.prevSetNumber || 1));
@@ -382,11 +380,12 @@ export const useMatchStore = create<MatchStore>()(
             const existingSavedNumbers = new Set(state.savedSets.map(s => s.setNumber));
 
             allSetNumbers.forEach(setNum => {
-                if (setNum === currentSetNumber) return; 
                 if (existingSavedNumbers.has(setNum)) return; 
+                // Do not reconstruct the currently active, unfinished set
+                if (setNum === currentSetNumber && !state.savedSets.some(s => s.setNumber === currentSetNumber)) return; 
 
                 const setEvents = externalEvents
-                    .filter(e => e.prevSetNumber === setNum)
+                    .filter(e => (e.prevSetNumber || 1) === setNum)
                     .sort((a, b) => a.ts - b.ts);
                 
                 if (setEvents.length === 0) return;
@@ -420,9 +419,9 @@ export const useMatchStore = create<MatchStore>()(
                 newSavedSets.push(reconstructed);
             });
 
-            // 2. UPDATE EXISTING SETS
+            // 2. UPDATE EXISTING SETS (Merge history perfectly)
             const updatedSavedSets = state.savedSets.map(savedSet => {
-                const relevantIncoming = externalEvents.filter(e => e.prevSetNumber === savedSet.setNumber);
+                const relevantIncoming = externalEvents.filter(e => (e.prevSetNumber || 1) === savedSet.setNumber);
                 if (relevantIncoming.length === 0) return savedSet;
 
                 const existingIds = new Set(savedSet.events.map(e => e.id));
@@ -442,6 +441,8 @@ export const useMatchStore = create<MatchStore>()(
                 if (uniqueNew.length === 0) return savedSet;
 
                 const mergedEvents = [...savedSet.events, ...uniqueNew].sort((a, b) => a.ts - b.ts);
+                
+                // Recalculate this set strictly based on its final merged array
                 const participatedPlayerIds = new Set<string>();
                 for (const ev of mergedEvents) { if (ev.playerId) participatedPlayerIds.add(ev.playerId); }
                 const perPlayerCounts: Record<string, Record<StatKey, number>> = {};
@@ -463,41 +464,50 @@ export const useMatchStore = create<MatchStore>()(
             });
 
             // 3. MERGE CURRENT SET
-            const existingIds = new Set(state.events.map(e => e.id));
-            const currentFreshEvents = externalEvents.filter(e => {
-                if (e.prevSetNumber !== currentSetNumber) return false;
-                if (existingIds.has(e.id)) return false;
-                
-                const isScoring = e.outcomeKey.includes("KILL") || e.outcomeKey.includes("ACE") || e.outcomeKey.includes("POINT");
-                if (isScoring) {
-                    const duplicateScore = state.events.some(existing => {
-                        const existingIsScoring = existing.outcomeKey.includes("KILL") || existing.outcomeKey.includes("ACE") || existing.outcomeKey.includes("POINT");
-                        return existingIsScoring && Math.abs(existing.ts - e.ts) < 5000; 
-                    });
-                    if (duplicateScore) return false; 
-                }
-                
-                const isFuzzyDuplicate = state.events.some(existing => 
-                    existing.playerId === e.playerId &&
-                    existing.skillKey === e.skillKey &&
-                    existing.outcomeKey === e.outcomeKey &&
-                    Math.abs(existing.ts - e.ts) < 2000
-                );
-                return !isFuzzyDuplicate;
-            });
-
-            const mergedCurrent = [...state.events, ...currentFreshEvents].sort((a, b) => a.ts - b.ts);
+            // Guard: ONLY merge into state.events if the user has NOT already ended this set!
+            let mergedCurrent = state.events;
+            if (!existingSavedNumbers.has(currentSetNumber)) {
+                const existingIds = new Set(state.events.map(e => e.id));
+                const currentFreshEvents = externalEvents.filter(e => {
+                    if ((e.prevSetNumber || 1) !== currentSetNumber) return false;
+                    if (existingIds.has(e.id)) return false;
+                    
+                    const isScoring = e.outcomeKey.includes("KILL") || e.outcomeKey.includes("ACE") || e.outcomeKey.includes("POINT");
+                    if (isScoring) {
+                        const duplicateScore = state.events.some(existing => {
+                            const existingIsScoring = existing.outcomeKey.includes("KILL") || existing.outcomeKey.includes("ACE") || existing.outcomeKey.includes("POINT");
+                            return existingIsScoring && Math.abs(existing.ts - e.ts) < 5000; 
+                        });
+                        if (duplicateScore) return false; 
+                    }
+                    
+                    const isFuzzyDuplicate = state.events.some(existing => 
+                        existing.playerId === e.playerId &&
+                        existing.skillKey === e.skillKey &&
+                        existing.outcomeKey === e.outcomeKey &&
+                        Math.abs(existing.ts - e.ts) < 2000
+                    );
+                    return !isFuzzyDuplicate;
+                });
+                mergedCurrent = [...state.events, ...currentFreshEvents].sort((a, b) => a.ts - b.ts);
+            }
             
             const finalSavedSets = [...updatedSavedSets, ...newSavedSets].sort((a,b) => a.setNumber - b.setNumber);
+            
+            // 4. ACTIVE STATE CLEANUP (Kill the Ghost Events)
+            // Automatically removes any events lingering in the active array that belong to a set we've already saved.
+            const finalSavedSetNumbers = new Set(finalSavedSets.map(s => s.setNumber));
+            const cleanedActiveEvents = mergedCurrent.filter(e => !finalSavedSetNumbers.has(e.prevSetNumber || 1));
+
             const wonA = finalSavedSets.filter(s => s.winner === "A").length;
             const wonB = finalSavedSets.filter(s => s.winner === "B").length;
 
             return { 
-                events: mergedCurrent, 
+                events: cleanedActiveEvents, 
                 savedSets: finalSavedSets,
                 setsWonA: wonA,
                 setsWonB: wonB,
-                toast: makeToast(`Imported events (History Rebuilt).`, "info") 
+                toast: makeToast(`Imported ${externalEvents.length} events (Ghost Data Cleared).`, "info") 
             };
         }),
 
@@ -514,24 +524,19 @@ export const useMatchStore = create<MatchStore>()(
         liberoSwapA: defaultLiberoSwap(), liberoSwapB: defaultLiberoSwap(), rallyCount: 0, rallyInProgress: false, serviceRunTeam: "A", serviceRunCount: 0,
         setRules: defaultSetRules(), setNumber: 1, setsWonA: 0, setsWonB: 0, savedSets: [], updateSetRules: (rules) => set((state) => ({ setRules: { ...state.setRules, ...rules } })),
         
-        // ✅ FIXED: STRICT FULL MATCH AGGREGATION
-        // Prevents double-counting by excluding active events that belong to already-saved sets
+        // ✅ FIXED STATS: Double-protection against duplicates
         getAllPlayerMatchStats: () => { 
           const s = get(); 
           
-          // 1. Get all events from saved history (Set 1, Set 2...)
           const savedEvents = s.savedSets.flatMap((x) => x.events);
-          
-          // 2. Identify which sets are already saved
           const savedSetNumbers = new Set(s.savedSets.map(set => set.setNumber));
 
-          // 3. Only grab active events if they belong to a NEW set
+          // Only merge events from state.events if they DON'T belong to a set we've already saved
           const validActiveEvents = s.events.filter(e => !savedSetNumbers.has(e.prevSetNumber || 1));
 
-          // 4. Combine
           const allEventsRaw = [...savedEvents, ...validActiveEvents].sort((a, b) => a.ts - b.ts);
 
-          // 5. Final Safety Deduplication (ID based)
+          // Absolute ID deduplication
           const uniqueMap = new Map();
           for (const e of allEventsRaw) { uniqueMap.set(e.id, e); }
           const uniqueEvents = Array.from(uniqueMap.values());
@@ -768,7 +773,7 @@ export const useMatchStore = create<MatchStore>()(
     },
     {
       name: "vb-match-store",
-      version: 38, // Final Version Bump for Strict Deduplication
+      version: 40, // Bumped to force clearance of Ghost Events
       migrate: (persisted: any) => ({ ...persisted, trackerMode: persisted?.trackerMode || "FULL" }),
       partialize: (state) => ({ players: state.players, courtA: state.courtA, courtB: state.courtB, scoreA: state.scoreA, scoreB: state.scoreB, servingTeam: state.servingTeam, events: state.events, leftTeam: state.leftTeam, liberoConfigA: state.liberoConfigA, liberoConfigB: state.liberoConfigB, rallyCount: state.rallyCount, rallyInProgress: state.rallyInProgress, serviceRunTeam: state.serviceRunTeam, serviceRunCount: state.serviceRunCount, liberoSwapA: state.liberoSwapA, liberoSwapB: state.liberoSwapB, setRules: state.setRules, setNumber: state.setNumber, setsWonA: state.setsWonA, setsWonB: state.setsWonB, savedSets: state.savedSets, subsUsedA: state.subsUsedA, subsUsedB: state.subsUsedB, activeSubsA: state.activeSubsA, activeSubsB: state.activeSubsB, trackerMode: state.trackerMode }),
     }
